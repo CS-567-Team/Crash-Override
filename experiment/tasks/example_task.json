@@ -1,0 +1,7 @@
+{
+    "id": "task_00",
+    "difficulty": "low",
+    "title": "Clear History",
+    "description": "Add a button that clears the calculator history.",
+    "prompt": "Implement a button that clears all entries from the calculator history."
+}

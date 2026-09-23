@@ -1,0 +1,1 @@
+Stores the data/configuration defining the experiment, rather than code that runs the experiment.
