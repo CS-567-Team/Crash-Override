@@ -1,5 +1,3 @@
-"""A small interactive calculator using only the Python standard library."""
-
 import math
 
 

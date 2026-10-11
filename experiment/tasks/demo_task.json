@@ -1,0 +1,7 @@
+{
+  "id": "demo_task",
+  "title": "Floor division operation",
+  "description": "Extend the console calculator with a floor-division operation.",
+  "prompt": "Support // in calculate() and the console menu using Python floor-division semantics. Reject floor division by zero with ValueError and keep the console running. Preserve +, -, *, /, finite-number input validation, and clean quit behavior.",
+  "difficulty": "balanced"
+}
