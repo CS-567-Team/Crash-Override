@@ -26,6 +26,7 @@ def next_response_id(runs_dir: Path) -> str:
 
 
 class Workflow:
+    
     def __init__(self, provider: ModelProvider, architecture: Architecture):
         self.provider = provider
         self.architecture = Architecture(architecture)

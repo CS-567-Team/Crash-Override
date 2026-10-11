@@ -45,6 +45,7 @@ class DemoProvider:
             
             source = context["files"]["app/example_calculator.py"]
             anchor = '    if operator == "/":\n'
+            
             if source.count(anchor) != 1:
                 raise ValueError("Demo fixture expects the original calculator baseline.")
             

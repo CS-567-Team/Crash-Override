@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def main() -> None:
     
-    parser = argparse.ArgumentParser(description="CS567 agent workflow prototype")
+    parser = argparse.ArgumentParser(description="CS567 Agent Workflow")
     commands = parser.add_subparsers(dest="command", required=True)
     
     # Creating all the arguments to use
