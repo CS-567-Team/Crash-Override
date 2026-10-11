@@ -21,7 +21,7 @@ class TrialSession:
     def __init__(self, participant_id: str, display: str, result: WorkflowResult):
         
         if not participant_id.strip():
-            raise ValueError("Use a nonempty pseudonymous participant ID")
+            raise ValueError("Use a nonempty participant ID")
         
         if display not in {"2d", "xr"}:
             raise ValueError("Display must be 2d or xr")

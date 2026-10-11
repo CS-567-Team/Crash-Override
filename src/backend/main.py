@@ -65,7 +65,7 @@ def main() -> None:
             else:
                 
                 if args.model:
-                    raise ValueError("--model only applies to --provider openai")
+                    raise ValueError("--model only applies to AI model providers")
                 
                 provider = DemoProvider()
                 

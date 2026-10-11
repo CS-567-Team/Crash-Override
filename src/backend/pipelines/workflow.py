@@ -11,7 +11,6 @@ from ..services.repo import apply_replacements, copy_baseline, read_app_files
 
 PIPELINE_VERSION = 1
 
-
 def load_cached(path: str | Path) -> WorkflowResult:
     return WorkflowResult(**json.loads(Path(path).read_text(encoding="utf-8")))
 
@@ -32,9 +31,11 @@ class Workflow:
         self.architecture = Architecture(architecture)
 
     def run(self, task: Task, *, baseline: Path, runtime: Path) -> WorkflowResult:
+        
         baseline, runtime = Path(baseline).resolve(), Path(runtime).resolve()
         
         original_files = read_app_files(baseline)
+        
         identity = {
             "version": PIPELINE_VERSION, "task": asdict(task), "files": original_files,
             "architecture": self.architecture.value, "provider": self.provider.cache_identity,
@@ -66,18 +67,25 @@ class Workflow:
             return output.data
 
         log({"event": "workflow_started", "cache_id": cache_id, "identity": identity})
+        
         try:
+            
             plan = None
+            
             if self.architecture == Architecture.PLANNER_PROGRAMMER_REVIEWER:
                 plan = invoke(PlannerAgent(self.provider), original_files)
+                
             extras = {"plan": plan} if plan is not None else {}
             implementation = invoke(ProgrammerAgent(self.provider), original_files, **extras)
             diff = apply_replacements(workspace, original_files, implementation["files"])
             changed_files = {**original_files, **implementation["files"]}
+            
             if self.architecture != Architecture.PROGRAMMER_ONLY:
                 invoke(ReviewerAgent(self.provider), changed_files,
                        original_files=original_files, diff=diff)
+                
             result = WorkflowResult(
+                
                 cache_id=cache_id, task=asdict(task), architecture=self.architecture.value,
                 agents=outputs, diff=diff, files=changed_files,
                 metadata={"pipeline_version": PIPELINE_VERSION,
