@@ -88,6 +88,7 @@ Researcher tools
 
     Streamlit sidebar > Researcher preview: view any trial without recording
     http://localhost:8000/xr.html?participant=p02 on the laptop: VR preview (drag, WASD)
+    python -m src.backend.main analyze                            # decisions -> runtime/analysis/*.csv
     python -m src.backend.experiment.schedule --participants 12   # full trial order
     python -m src.backend.main evaluate runtime/cache/response_*.json   # re-score caches
     python -m src.backend.experiment.check_suites                 # validate hidden tests

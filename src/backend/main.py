@@ -81,6 +81,15 @@ def main() -> None:
                        type=Path,
                        default=PROJECT_ROOT / "runtime")
 
+    analyze = commands.add_parser("analyze",
+                                  help="Export decision metrics to CSV for analysis")
+    analyze.add_argument("--runtime",
+                         type=Path,
+                         default=PROJECT_ROOT / "runtime")
+    analyze.add_argument("--out",
+                         type=Path,
+                         help="Output folder (default: <runtime>/analysis)")
+
     args = parser.parse_args()
     
     try:
@@ -120,6 +129,19 @@ def main() -> None:
                 summary = {k: data["metadata"]["evaluation"][k] for k in
                            ("hidden_pass_rate", "regressions", "correct_decision")}
                 print(f"{path.name}: {json.dumps(summary)}")
+
+        elif args.command == "analyze":
+
+            from .experiment.metrics import analyze as export_metrics
+            out = args.out or args.runtime / "analysis"
+            rows, summary = export_metrics(args.runtime, out)
+            print(f"{len(rows)} decisions -> {out / 'trials.csv'} and {out / 'summary.csv'}\n")
+            print(f"{'architecture / display':<42}{'n':>4}{'accuracy':>10}{'caught bug':>12}{'mean s':>9}{'trust':>7}")
+            for row in summary:
+                if row["group_by"] == "architecture_x_display":
+                    print(f"{row['group']:<42}{row['trials']:>4}{str(row['accuracy']):>10}"
+                          f"{str(row['seeded_failure_caught']):>12}{str(row['mean_decision_seconds']):>9}"
+                          f"{str(row['mean_trust']):>7}")
 
         elif args.command == "serve":
 

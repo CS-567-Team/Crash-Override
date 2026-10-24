@@ -14,8 +14,10 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from src.backend.agents import ProgrammerAgent, ReviewerAgent
+from src.backend.agents import PlannerAgent, ProgrammerAgent, ReviewerAgent
+from src.backend.experiment.metrics import analyze
 from src.backend.experiment.plan import next_trial, session_plan
+from src.backend.experiment.session import TrialSession
 from src.backend.experiment.presentation import build_sections
 from src.backend.experiment.schedule import DEFAULT_TASKS, SEEDED_TASKS, build_schedule
 from src.backend.experiment.task_loader import load_task
@@ -89,6 +91,21 @@ class AgentOutputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProgrammerAgent(DemoProvider()).parse('{"summary": "no files"}')
 
+    def test_validates_planner_fields(self):
+        agent = PlannerAgent(DemoProvider())
+        self.assertEqual(agent.parse('{"summary": "s", "steps": ["a"], "edge_cases": []}')["steps"], ["a"])
+        with self.assertRaises(ValueError):
+            agent.parse('{"summary": "s", "steps": "do it", "edge_cases": []}')
+
+    def test_rejects_wrong_field_types(self):
+        with self.assertRaises(ValueError):
+            ReviewerAgent(DemoProvider()).parse('{"summary": "ok", "verdict": "approve", "issues": "none", "limitations": []}')
+
+    def test_programmer_cannot_edit_unsupplied_files(self):
+        from src.backend.services.repo import apply_replacements
+        with self.assertRaises(ValueError):
+            apply_replacements(Path("."), {"app/a.py": "x"}, {"tests/test_a.py": "y"})
+
     def test_rejects_non_json(self):
         with self.assertRaises(ValueError):
             ProgrammerAgent(DemoProvider()).parse("Sure! Here is the code.")
@@ -100,6 +117,23 @@ class TaskLoaderTests(unittest.TestCase):
         for path in (ROOT / "experiment" / "tasks").glob("*.json"):
             with self.subTest(task=path.name):
                 load_task(path)
+
+    def test_rejects_missing_task_file(self):
+        with self.assertRaises(OSError):
+            load_task(ROOT / "experiment" / "tasks" / "does_not_exist.json")
+
+    def test_rejects_task_without_prompt(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"id": "x", "title": "x"}, handle)
+        with self.assertRaises(ValueError):
+            load_task(handle.name)
+        Path(handle.name).unlink()
+
+    def test_baseline_without_app_files_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = Workflow(DemoProvider(), Architecture.PROGRAMMER_ONLY)
+            with self.assertRaisesRegex(ValueError, "no Python application files"):
+                workflow.run(load_task(TASK), baseline=Path(tmp), runtime=Path(tmp) / "runtime")
 
     def test_rejects_researcher_only_fields(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
@@ -145,6 +179,38 @@ class DemoFixtureTests(unittest.TestCase):
                     self.assertEqual(evaluation["visible_pass_rate"], 1.0)
                     self.assertEqual(evaluation["correct_decision"],
                                      "reject" if task_id in seeded else "accept")
+
+
+class MetricsTests(unittest.TestCase):
+
+    def test_exports_trials_and_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            correct = generate(runtime, Architecture.PROGRAMMER_ONLY)
+            seeded = generate(runtime, Architecture.PROGRAMMER_REVIEWER, seeded=True)
+            for result, decision in [(correct, "accept"), (seeded, "accept")]:
+                session = TrialSession("p01", "2d", result)
+                session.present()
+                session.record_decision(decision, runtime / "decisions.jsonl", decision_seconds=10,
+                                        responses={"trust": 6, "confidence": 4},
+                                        interactions=[{"t": 2.5, "type": "view", "target": "after"},
+                                                      {"t": 4.0, "type": "view", "target": "after"}])
+            rows, summary = analyze(runtime, runtime / "analysis")
+            self.assertTrue((runtime / "analysis" / "trials.csv").is_file())
+
+        self.assertEqual([row["correct"] for row in rows], [True, False])
+        self.assertEqual(rows[0]["first_view_after_seconds"], 2.5)
+        self.assertEqual(rows[1]["reviewer_verdict"], "approve")
+        participant = next(row for row in summary if row["group_by"] == "participant")
+        self.assertEqual(participant["accuracy"], 0.5)
+        self.assertEqual(participant["seeded_failure_caught"], 0.0)
+        self.assertEqual(participant["mean_trust"], 6)
+
+    def test_empty_log_exports_headers_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, summary = analyze(Path(tmp), Path(tmp) / "analysis")
+            self.assertEqual((rows, summary), ([], []))
+            self.assertIn("participant_id", (Path(tmp) / "analysis" / "trials.csv").read_text())
 
 
 class PresentationTests(unittest.TestCase):
