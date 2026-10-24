@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
+from .experiment.schedule import DEFAULT_TASKS
 from .experiment.session import TrialSession
 from .experiment.task_loader import load_task
 from .models import Architecture
@@ -37,6 +38,9 @@ def main() -> None:
     generate.add_argument("--baseline", 
                           type=Path, 
                           default=PROJECT_ROOT / "baseline")
+    generate.add_argument("--all",
+                          action="store_true",
+                          help="Generate every study task with every architecture")
     generate.add_argument("--runtime", type=Path, 
                           default=PROJECT_ROOT / "runtime")
     
@@ -91,9 +95,17 @@ def main() -> None:
                 
                 provider = DemoProvider(seeded=args.provider == "demo-seeded")
                 
-            result = Workflow(provider, Architecture(args.architecture)).run(load_task(args.task), baseline=args.baseline, runtime=args.runtime)
-            print(json.dumps(result.participant_payload(), indent=2))
-            print(f"\nCached at: {args.runtime / 'cache' / (result.cache_id + '.json')}")
+            if args.all:
+                jobs = [(PROJECT_ROOT / "experiment/tasks" / f"{task}.json", architecture)
+                        for task in DEFAULT_TASKS for architecture in Architecture]
+            else:
+                jobs = [(args.task, Architecture(args.architecture))]
+
+            for task_path, architecture in jobs:
+                result = Workflow(provider, architecture).run(load_task(task_path), baseline=args.baseline, runtime=args.runtime)
+                evaluation = result.metadata["evaluation"]
+                print(f"{result.cache_id}: {result.task['id']} / {result.architecture} -> "
+                      f"hidden tests {evaluation['hidden_pass_rate']:.0%}, should {evaluation['correct_decision']}")
             
         elif args.command == "evaluate":
 

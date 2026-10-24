@@ -14,7 +14,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from src.backend.agents import ProgrammerAgent, ReviewerAgent
-from src.backend.experiment.schedule import build_schedule
+from src.backend.experiment.plan import next_trial, session_plan
+from src.backend.experiment.presentation import build_sections
+from src.backend.experiment.schedule import DEFAULT_TASKS, build_schedule
 from src.backend.experiment.task_loader import load_task
 from src.backend.models import Architecture
 from src.backend.pipelines.workflow import Workflow, load_cached
@@ -117,6 +119,67 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(set(positions.values()), {2})
 
 
+class DemoFixtureTests(unittest.TestCase):
+
+    def test_every_study_task_has_offline_outputs_with_expected_ground_truth(self):
+        seeded = {"modulo", "overflow_guard"}
+        with tempfile.TemporaryDirectory() as tmp:
+            for task_id in DEFAULT_TASKS:
+                with self.subTest(task=task_id):
+                    task = load_task(ROOT / "experiment" / "tasks" / f"{task_id}.json")
+                    result = Workflow(DemoProvider(), Architecture.PLANNER_PROGRAMMER_REVIEWER).run(
+                        task, baseline=BASELINE, runtime=Path(tmp))
+                    evaluation = result.metadata["evaluation"]
+                    self.assertEqual(evaluation["visible_pass_rate"], 1.0)
+                    self.assertEqual(evaluation["correct_decision"],
+                                     "reject" if task_id in seeded else "accept")
+
+
+class PresentationTests(unittest.TestCase):
+
+    def test_sections_follow_workflow_and_include_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            only = generate(Path(tmp), Architecture.PROGRAMMER_ONLY).participant_payload()
+            full = generate(Path(tmp), Architecture.PLANNER_PROGRAMMER_REVIEWER).participant_payload()
+        self.assertEqual([s["id"] for s in build_sections(only)], ["task", "original", "diff"])
+        sections = build_sections(full)
+        self.assertEqual([s["id"] for s in sections], ["task", "original", "plan", "diff", "review"])
+        self.assertIn("console calculator", sections[0]["text"])
+        self.assertIn("Planner:", sections[0]["text"])
+        self.assertIn("def calculate", sections[1]["text"])
+        self.assertNotIn("+    if operator", sections[1]["text"])
+
+
+class SessionPlanTests(unittest.TestCase):
+
+    def test_plan_covers_every_condition_and_tracks_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            for architecture in Architecture:
+                generate(runtime, architecture)
+            plan = session_plan("p01", runtime)
+            self.assertEqual(len(plan), 6)
+            self.assertEqual({(t["architecture"], t["display"]) for t in plan},
+                             {(a.value, d) for a in Architecture for d in ("2d", "xr")})
+            demo = [t for t in plan if t["task"] == "demo_task"][0]
+            self.assertIsNotNone(demo["cache_id"])
+            (runtime / "decisions.jsonl").write_text(json.dumps(
+                {"participant_id": "p01", "cache_id": demo["cache_id"]}) + "\n")
+            self.assertTrue([t for t in session_plan("p01", runtime) if t["task"] == "demo_task"][0]["done"])
+            self.assertFalse(any(t["done"] for t in session_plan("p02", runtime)))
+
+    def test_participant_rows_differ(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = [(t["architecture"], t["display"]) for t in session_plan("p01", Path(tmp))]
+            second = [(t["architecture"], t["display"]) for t in session_plan("p02", Path(tmp))]
+        self.assertNotEqual(first, second)
+        self.assertIsNotNone(next_trial(session_plan("p01", Path(tmp))))
+
+    def test_rejects_id_without_number(self):
+        with self.assertRaises(ValueError):
+            session_plan("amber", Path("."))
+
+
 class ServerTests(unittest.TestCase):
 
     @classmethod
@@ -150,7 +213,17 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(trials[0]["cache_id"], self.seeded.cache_id)
         status, payload = self.request(f"/api/trials/{self.seeded.cache_id}")
         self.assertEqual(status, 200)
-        self.assertNotIn("metadata", payload)
+        self.assertNotIn("evaluation", json.dumps(payload))
+        self.assertEqual([s["id"] for s in payload["sections"]], ["task", "original", "diff", "review"])
+        self.assertEqual(len(payload["questions"]), 2)
+
+    def test_session_endpoint(self):
+        status, session = self.request("/api/session/p05")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(session["trials"]), 6)
+        self.assertEqual(session["next"]["position"], 1)
+        status, _ = self.request("/api/session/nobody")
+        self.assertEqual(status, 400)
 
     def test_rejects_path_traversal(self):
         status, _ = self.request("/api/trials/..%2F..%2Fsecrets")

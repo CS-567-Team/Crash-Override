@@ -1,0 +1,25 @@
+{
+  "planner": {
+    "summary": "Add ** (exponentiation) and make sure every result is a finite real number.",
+    "steps": [
+      "Add a ** branch to calculate().",
+      "Catch OverflowError and ZeroDivisionError and raise ValueError instead.",
+      "Reject complex or infinite results with ValueError.",
+      "Add ** to the accepted operators and menu text."
+    ],
+    "edge_cases": [
+      "Very large results (10 ** 400)",
+      "0 raised to a negative power",
+      "Negative base with a fractional exponent gives a complex number"
+    ]
+  },
+  "programmer_summary": "Added a ** branch that converts overflow and zero-division errors to ValueError and rejects complex or infinite results.",
+  "reviewer": {
+    "summary": "Overflow, zero to a negative power, and complex results are all turned into ValueError, so the console keeps running.",
+    "verdict": "approve",
+    "issues": [],
+    "limitations": [
+      "Review is based on reading the code; no tests were run."
+    ]
+  }
+}

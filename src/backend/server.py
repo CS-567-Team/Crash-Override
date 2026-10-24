@@ -2,8 +2,8 @@
 
     python -m src.backend.main serve            # then open http://localhost:8000
 
-Both displays fetch the same participant payload from /api/trials/<cache_id>, so the
-only thing that differs between conditions is presentation. Hidden-test results stay on
+The headset fetches its sections from /api/trials/<cache_id>; the Streamlit 2D app builds
+the same sections in-process, so the only thing that differs is presentation. Hidden-test results stay on
 the server and are only used to score decisions."""
 
 import json
@@ -12,8 +12,10 @@ from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
+from .experiment.plan import next_trial, session_plan
+from .experiment.presentation import build_sections, load_context
 from .experiment.session import TrialSession
 from .pipelines.workflow import load_cached
 
@@ -29,6 +31,9 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, runtime: Path, **kwargs):
         self.runtime = runtime
         super().__init__(*args, directory=str(WEB_ROOT), **kwargs)
+
+    def log_message(self, format, *args):
+        pass
 
     def end_headers(self):
         # Always serve fresh files while iterating on the prototype.
@@ -65,7 +70,19 @@ class Handler(SimpleHTTPRequestHandler):
                 result = load_cached(self.cache_path(route.removeprefix("/api/trials/")))
             except FileNotFoundError:
                 return self.send_json({"error": "Unknown trial"}, HTTPStatus.NOT_FOUND)
-            return self.send_json(result.participant_payload())
+            payload = result.participant_payload()
+            context = load_context()
+            return self.send_json({"cache_id": result.cache_id, "task": payload["task"],
+                                   "sections": build_sections(payload, context),
+                                   "decision_help": context["decision_help"],
+                                   "questions": context["questions"]})
+
+        if route.startswith("/api/session/"):
+            try:
+                plan = session_plan(unquote(route.removeprefix("/api/session/")), self.runtime)
+            except ValueError as error:
+                return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"trials": plan, "next": next_trial(plan)})
 
         if route.startswith("/api/"):
             return self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)

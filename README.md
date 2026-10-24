@@ -32,40 +32,44 @@ All commands run from the repository root with Python 3.10+.
 
     pip install -r requirements.txt
 
-1. Generate and cache agent outputs (one per task x architecture). Each run is scored
-   against the task's hidden tests; the scores stay researcher-only.
+1. Generate the agent outputs for every task and workflow (18 trials). This works offline
+   with the demo fixtures; each trial is scored against hidden tests (researcher-only).
 
-    python -m src.backend.main generate --provider demo --architecture programmer_only
-    python -m src.backend.main generate --provider demo-seeded --architecture planner_programmer_reviewer
-    python -m src.backend.main generate --provider openai --task experiment/tasks/modulo.json --architecture programmer_reviewer
+    python -m src.backend.main generate --all --provider demo
 
-   demo / demo-seeded are offline fixtures for demo_task (demo-seeded has a hidden bug
-   the reviewer still approves). openai needs OPENAI_API_KEY in .env (copy .env.example).
+   With OPENAI_API_KEY in .env (copy .env.example), use --provider openai instead.
 
-2. Serve the participant UI and open http://localhost:8000
+2. Start both apps (two terminals):
 
-    python -m src.backend.main serve
+    python -m src.backend.main serve          # VR server on http://localhost:8000
+    streamlit run src/frontend/app_2d.py      # 2D app and session hub
 
-   The launcher lists every cached trial with "Open 2D" (tabs) and "Open XR" (3D panels).
-   Both views show identical content; decisions, 1-7 trust/confidence ratings, decision
-   time, and which section was looked at when are appended to runtime/decisions.jsonl,
-   scored against the hidden tests.
+3. Run a participant session. Enter the participant ID (p01 to p12) in the Streamlit
+   sidebar. It walks them through their 6 counterbalanced trials, covering all three
+   workflows on both displays. When a trial is in VR, Streamlit says so and waits.
 
-   Meta Quest: WebXR needs localhost or HTTPS. With the headset connected over USB:
+   In the headset, open http://localhost:8000, enter the same ID, and press Enter VR.
+   VR trials run back to back until the next one is on the laptop.
+
+   VR controls: trigger = click, grip = grab and move a panel (thumbstick pushes it away
+   or pulls it closer while held), left thumbstick = walk, right thumbstick = scroll the
+   panel you point at (up/down) or turn (left/right). "Reset layout" puts everything back.
+
+   Meta Quest over USB (WebXR needs localhost or HTTPS):
        adb reverse tcp:8000 tcp:8000
-   then open http://localhost:8000 in the Quest browser and press "Enter VR".
-   Point a controller and pull the trigger to click; thumbstick scrolls a panel.
 
-3. Counterbalanced trial order for 12 participants (Williams square):
-
-    python -m src.backend.experiment.schedule --participants 12 > experiment/schedule.csv
+   Every decision (with trust/confidence ratings, decision time, which sections were
+   viewed when, and whether it was correct) is appended to runtime/decisions.jsonl.
+   To rerun a participant, use a new ID or remove their lines from that file.
 
 Researcher tools
 
+    Streamlit sidebar > Researcher preview: view any trial without recording
+    python -m src.backend.experiment.schedule --participants 12   # full trial order
     python -m src.backend.main evaluate runtime/cache/response_*.json   # re-score caches
-    python -m src.backend.experiment.check_suites                        # validate hidden tests
-    python -m unittest discover -s tests -t .                            # system tests
-    python -m unittest discover -s baseline/tests                        # baseline app tests
+    python -m src.backend.experiment.check_suites                 # validate hidden tests
+    python -m unittest discover -s tests -t .                     # system tests
 
-experiment/hidden_tests and experiment/reference_solutions are researcher-only: never show
-them to agents or participants.
+Participant-facing text (study intro, program description, questions) is in
+experiment/participant_context.json. experiment/hidden_tests, reference_solutions and
+demo_fixtures are researcher-only: never show them to agents or participants.

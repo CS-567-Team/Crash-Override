@@ -1,8 +1,14 @@
 import json
 import os
+from pathlib import Path
 from typing import Protocol
 
 from ..models import ModelResponse
+
+EXPERIMENT = Path(__file__).resolve().parents[3] / "experiment"
+FIXTURES = EXPERIMENT / "demo_fixtures"
+REFERENCES = EXPERIMENT / "reference_solutions"
+APP_FILE = "app/example_calculator.py"
 
 class ModelProvider(Protocol):
     @property
@@ -55,58 +61,48 @@ class OpenAIProvider:
 
 
 class DemoProvider:
-    """Offline fixture for demo_task. seeded=True returns a plausible but wrong
-    implementation (truncates toward zero) that the reviewer still approves."""
+    """Offline agent outputs from experiment/demo_fixtures/<task_id>.json, so the whole study
+    runs without an API key. Tasks marked use_seeded get their seeded bug; seeded=True
+    forces the seeded bug for any task that has one."""
 
     def __init__(self, seeded: bool = False):
         self.seeded = seeded
-        self.model = "offline-fixture-seeded-v1" if seeded else "offline-fixture-v1"
+        self.model = "offline-fixture-seeded-v2" if seeded else "offline-fixture-v2"
 
     @property
     def cache_identity(self) -> dict:
         return {"provider": "demo", "model": self.model}
 
     def complete(self, *, role: str, system_prompt: str, user_prompt: str) -> ModelResponse:
-        
+
         context = json.loads(user_prompt)
-        
-        if context["task"]["id"] != "demo_task":
-            raise ValueError("Demo provider only supports experiment/tasks/demo_task.json.")
-        
+        task_id = context["task"]["id"]
+        path = FIXTURES / f"{task_id}.json"
+
+        if not path.is_file():
+            raise ValueError(f"No demo fixture for task {task_id!r} in {FIXTURES}")
+
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+
         if role == "planner":
-            
-            data = {"summary": "Add floor division to calculation and the console menu.",
-                    "steps": ["Handle // and reject a zero divisor.", "Expose // in the menu."],
-                    "edge_cases": ["Zero divisor", "Negative operands", "Decimals"]}
-            
+            data = fixture["planner"]
+
         elif role == "programmer":
-            
-            source = context["files"]["app/example_calculator.py"]
-            anchor = '    if operator == "/":\n'
-            
-            if source.count(anchor) != 1:
-                raise ValueError("Demo fixture expects the original calculator baseline.")
-            
-            source = source.replace(anchor,
-                '    if operator == "//":\n'
-                '        if right == 0:\n'
-                '            raise ValueError("Cannot floor divide by zero.")\n'
-                + ('        return float(int(left / right))\n' if self.seeded
-                 else '        return left // right\n') + anchor)
-            source = source.replace("Choose +, -, *, or /.",
-                                    "Choose +, -, *, or /. You can also choose //.")
-            source = source.replace("Calculator: +, -, *, / (", "Calculator: +, -, *, /, // (")
-            source = source.replace('{"+", "-", "*", "/"}', '{"+", "-", "*", "/", "//"}')
-            data = {"summary": "Added floor division with Python floor-division semantics.",
-                    "files": {"app/example_calculator.py": source}}
-            
+
+            if self.seeded and "seeded_file" not in fixture:
+                raise ValueError(f"Task {task_id!r} has no seeded variant")
+
+            if self.seeded or fixture.get("use_seeded"):
+                source = (FIXTURES / fixture["seeded_file"]).read_text(encoding="utf-8")
+            else:
+                source = (REFERENCES / task_id / APP_FILE).read_text(encoding="utf-8")
+
+            data = {"summary": fixture["programmer_summary"], "files": {APP_FILE: source}}
+
         elif role == "reviewer":
-            
-            data = {"summary": "Floor division handling and console routing are present.",
-                    "verdict": "approve", "issues": [],
-                    "limitations": ["Static fixture review; no tests were executed by this agent."]}
-            
+            data = fixture["reviewer"]
+
         else:
             raise ValueError(f"Unknown role: {role}")
-        
+
         return ModelResponse(json.dumps(data), self.model)

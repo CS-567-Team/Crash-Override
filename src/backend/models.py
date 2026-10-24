@@ -1,3 +1,4 @@
+import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
@@ -60,4 +61,9 @@ class WorkflowResult:
             "architecture": self.architecture,
             "agents": [{"role": a["role"], "data": a["data"]} for a in self.agents],
             "diff": self.diff,
+            "original_files": self.original_files(),
         }
+
+    def original_files(self) -> dict[str, str]:
+        """The first agent (planner or programmer) always receives the unmodified files."""
+        return json.loads(self.agents[0]["user_prompt"])["files"]
