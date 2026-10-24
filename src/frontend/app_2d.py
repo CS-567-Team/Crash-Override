@@ -2,6 +2,8 @@ import streamlit as st
 import json
 import sys
 import os
+import csv 
+from datetime import datetime
 
 # Point to backend so we can use DemoProvider
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -59,5 +61,19 @@ elif workflow == "Planner + Programmer + Reviewer":
 
 st.markdown("---")
 decision = st.radio("Final Decision:", ["Accept", "Reject"])
+
 if st.button("Submit Decision"):
-    st.success(f"Decision '{decision}' recorded! (Telemetry logging will go here next)")
+    # The Telemetry Logger: Append the participant's actions to a CSV file
+    log_file = "telemetry_log.csv"
+    file_exists = os.path.isfile(log_file)
+    
+    with open(log_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        # Write the column headers if this is the very first click
+        if not file_exists:
+            writer.writerow(["timestamp", "workflow_condition", "task_id", "decision"])
+        
+        # Log the actual data for this specific trial
+        writer.writerow([datetime.now().isoformat(), workflow, "demo_task", decision])
+        
+    st.success(f"Data logged! Participant chose: '{decision}' under the '{workflow}' condition.")
