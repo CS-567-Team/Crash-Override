@@ -26,7 +26,7 @@ st.markdown("---")
 
 # Get the Programmer's code 
 prog_response = provider.complete(role="programmer", system_prompt="", user_prompt=fake_user_prompt)
-prog_data = json.loads(prog_response.content)
+prog_data = json.loads(prog_response.text)
 code_diff = prog_data["files"]["app/example_calculator.py"]
 
 # Dynamically show tabs based on the active condition
@@ -41,14 +41,14 @@ elif workflow == "Programmer + Reviewer":
         st.code(code_diff, language="python")
     with tab2:
         rev_response = provider.complete(role="reviewer", system_prompt="", user_prompt=fake_user_prompt)
-        rev_data = json.loads(rev_response.content)
+        rev_data = json.loads(rev_response.text)
         st.info(rev_data["summary"] + "\n\nVerdict: " + rev_data["verdict"])
 
 elif workflow == "Planner + Programmer + Reviewer":
     tab1, tab2, tab3 = st.tabs(["Implementation Plan", "Code Diff", "Reviewer Feedback"])
     with tab1:
         plan_response = provider.complete(role="planner", system_prompt="", user_prompt=fake_user_prompt)
-        plan_data = json.loads(plan_response.content)
+        plan_data = json.loads(plan_response.text)
         st.write(plan_data["summary"])
         for step in plan_data["steps"]:
             st.write(f"- {step}")
@@ -56,7 +56,7 @@ elif workflow == "Planner + Programmer + Reviewer":
         st.code(code_diff, language="python")
     with tab3:
         rev_response = provider.complete(role="reviewer", system_prompt="", user_prompt=fake_user_prompt)
-        rev_data = json.loads(rev_response.content)
+        rev_data = json.loads(rev_response.text)
         st.info(rev_data["summary"] + "\n\nVerdict: " + rev_data["verdict"])
 
 st.markdown("---")
