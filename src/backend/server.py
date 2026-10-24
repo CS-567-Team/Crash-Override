@@ -2,19 +2,24 @@
 
     python -m src.backend.main serve            # then open http://localhost:8000
 
-Both displays fetch the same participant payload from /api/trials/<cache_id>, so the
-only thing that differs between conditions is presentation. Hidden-test results stay on
+The headset fetches its sections from /api/trials/<cache_id>; the Streamlit 2D app builds
+the same sections in-process, so the only thing that differs is presentation. Hidden-test results stay on
 the server and are only used to score decisions."""
 
 import json
 import re
+import ssl
+from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
+from .experiment.plan import next_trial, session_plan
+from .experiment.presentation import build_sections, load_context
 from .experiment.session import TrialSession
+from .services.certs import ensure_certificate, lan_address
 from .pipelines.workflow import load_cached
 
 WEB_ROOT = Path(__file__).resolve().parents[1] / "frontend" / "web"
@@ -29,6 +34,9 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, runtime: Path, **kwargs):
         self.runtime = runtime
         super().__init__(*args, directory=str(WEB_ROOT), **kwargs)
+
+    def log_message(self, format, *args):
+        pass
 
     def end_headers(self):
         # Always serve fresh files while iterating on the prototype.
@@ -65,7 +73,19 @@ class Handler(SimpleHTTPRequestHandler):
                 result = load_cached(self.cache_path(route.removeprefix("/api/trials/")))
             except FileNotFoundError:
                 return self.send_json({"error": "Unknown trial"}, HTTPStatus.NOT_FOUND)
-            return self.send_json(result.participant_payload())
+            payload = result.participant_payload()
+            context = load_context()
+            return self.send_json({"cache_id": result.cache_id, "task": payload["task"],
+                                   "sections": build_sections(payload, context),
+                                   "decision_help": context["decision_help"],
+                                   "questions": context["questions"]})
+
+        if route.startswith("/api/session/"):
+            try:
+                plan = session_plan(unquote(route.removeprefix("/api/session/")), self.runtime)
+            except ValueError as error:
+                return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"trials": plan, "next": next_trial(plan)})
 
         if route.startswith("/api/"):
             return self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -73,7 +93,12 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/decisions":
+        route = urlparse(self.path).path
+
+        if route == "/api/debug":
+            return self.record_debug()
+
+        if route != "/api/decisions":
             return self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
         try:
@@ -100,10 +125,37 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json({"trial_id": event["trial_id"]})
 
 
-def serve(host: str, port: int, runtime: Path) -> None:
-    handler = partial(Handler, runtime=Path(runtime).resolve())
-    server = ThreadingHTTPServer((host, port), handler)
-    print(f"Serving participant UI at http://{'localhost' if host == '127.0.0.1' else host}:{port}")
+    def record_debug(self):
+        """Headset diagnostics (VR support, controllers, errors) for troubleshooting."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY:
+                raise ValueError("Request too large")
+            event = json.loads(self.rfile.read(length))
+        except (ValueError, TypeError):
+            return self.send_json({"error": "Invalid debug event"}, HTTPStatus.BAD_REQUEST)
+        self.runtime.mkdir(parents=True, exist_ok=True)
+        with (self.runtime / "xr_debug.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), **event}) + "\n")
+        return self.send_json({"ok": True})
+
+
+def serve(host: str, port: int, runtime: Path, https: bool = False) -> None:
+    runtime = Path(runtime).resolve()
+    server = ThreadingHTTPServer((host, port), partial(Handler, runtime=runtime))
+
+    if https:
+        address = lan_address()
+        cert, key = ensure_certificate(runtime / "certs", address)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        print(f"Serving over HTTPS. In the Oculus browser open:  https://{address}:{port}")
+        print("The first time, the headset warns the connection is not private: "
+              "choose Advanced, then Proceed. This is expected for your own laptop.")
+    else:
+        print(f"Serving participant VR page at http://localhost:{port}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

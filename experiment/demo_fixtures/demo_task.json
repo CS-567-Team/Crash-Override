@@ -1,0 +1,26 @@
+{
+  "seeded_file": "demo_task_seeded.py",
+  "use_seeded": false,
+  "planner": {
+    "summary": "Add a // operation to calculate() and expose it in the console menu.",
+    "steps": [
+      "Add a // branch to calculate() that uses Python's floor division.",
+      "Raise ValueError when the divisor is zero, matching the existing / behavior.",
+      "Add // to the accepted operators and the menu text in main()."
+    ],
+    "edge_cases": [
+      "Zero divisor",
+      "Negative operands (floor rounds toward negative infinity)",
+      "Decimal operands"
+    ]
+  },
+  "programmer_summary": "Added a // branch to calculate() with a zero-divisor check and added // to the console menu.",
+  "reviewer": {
+    "summary": "The new // branch mirrors the existing division handling and the menu accepts the new operator.",
+    "verdict": "approve",
+    "issues": [],
+    "limitations": [
+      "Review is based on reading the code; no tests were run."
+    ]
+  }
+}

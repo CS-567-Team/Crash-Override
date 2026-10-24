@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
+from .experiment.schedule import DEFAULT_TASKS
 from .experiment.session import TrialSession
 from .experiment.task_loader import load_task
 from .models import Architecture
@@ -37,6 +38,9 @@ def main() -> None:
     generate.add_argument("--baseline", 
                           type=Path, 
                           default=PROJECT_ROOT / "baseline")
+    generate.add_argument("--all",
+                          action="store_true",
+                          help="Generate every study task with every architecture")
     generate.add_argument("--runtime", type=Path, 
                           default=PROJECT_ROOT / "runtime")
     
@@ -65,14 +69,26 @@ def main() -> None:
     serve = commands.add_parser("serve",
                                 help="Serve the 2D and WebXR participant interfaces")
     serve.add_argument("--host",
-                       default="127.0.0.1",
-                       help="Use 0.0.0.0 to reach it from a headset on the same network")
+                       default=None,
+                       help="Defaults to 127.0.0.1, or 0.0.0.0 with --https")
+    serve.add_argument("--https",
+                       action="store_true",
+                       help="Serve over HTTPS on the local network so the Oculus can connect over Wi-Fi")
     serve.add_argument("--port",
                        type=int,
                        default=8000)
     serve.add_argument("--runtime",
                        type=Path,
                        default=PROJECT_ROOT / "runtime")
+
+    analyze = commands.add_parser("analyze",
+                                  help="Export decision metrics to CSV for analysis")
+    analyze.add_argument("--runtime",
+                         type=Path,
+                         default=PROJECT_ROOT / "runtime")
+    analyze.add_argument("--out",
+                         type=Path,
+                         help="Output folder (default: <runtime>/analysis)")
 
     args = parser.parse_args()
     
@@ -91,9 +107,17 @@ def main() -> None:
                 
                 provider = DemoProvider(seeded=args.provider == "demo-seeded")
                 
-            result = Workflow(provider, Architecture(args.architecture)).run(load_task(args.task), baseline=args.baseline, runtime=args.runtime)
-            print(json.dumps(result.participant_payload(), indent=2))
-            print(f"\nCached at: {args.runtime / 'cache' / (result.cache_id + '.json')}")
+            if args.all:
+                jobs = [(PROJECT_ROOT / "experiment/tasks" / f"{task}.json", architecture)
+                        for task in DEFAULT_TASKS for architecture in Architecture]
+            else:
+                jobs = [(args.task, Architecture(args.architecture))]
+
+            for task_path, architecture in jobs:
+                result = Workflow(provider, architecture).run(load_task(task_path), baseline=args.baseline, runtime=args.runtime)
+                evaluation = result.metadata["evaluation"]
+                print(f"{result.cache_id}: {result.task['id']} / {result.architecture} -> "
+                      f"hidden tests {evaluation['hidden_pass_rate']:.0%}, should {evaluation['correct_decision']}")
             
         elif args.command == "evaluate":
 
@@ -106,10 +130,24 @@ def main() -> None:
                            ("hidden_pass_rate", "regressions", "correct_decision")}
                 print(f"{path.name}: {json.dumps(summary)}")
 
+        elif args.command == "analyze":
+
+            from .experiment.metrics import analyze as export_metrics
+            out = args.out or args.runtime / "analysis"
+            rows, summary = export_metrics(args.runtime, out)
+            print(f"{len(rows)} decisions -> {out / 'trials.csv'} and {out / 'summary.csv'}\n")
+            print(f"{'architecture / display':<42}{'n':>4}{'accuracy':>10}{'caught bug':>12}{'mean s':>9}{'trust':>7}")
+            for row in summary:
+                if row["group_by"] == "architecture_x_display":
+                    print(f"{row['group']:<42}{row['trials']:>4}{str(row['accuracy']):>10}"
+                          f"{str(row['seeded_failure_caught']):>12}{str(row['mean_decision_seconds']):>9}"
+                          f"{str(row['mean_trust']):>7}")
+
         elif args.command == "serve":
 
             from .server import serve as run_server
-            run_server(args.host, args.port, args.runtime)
+            host = args.host or ("0.0.0.0" if args.https else "127.0.0.1")
+            run_server(host, args.port, args.runtime, https=args.https)
 
         else:
             

@@ -1,8 +1,11 @@
 """Counterbalanced trial order for the 3 x 2 within-subjects design.
 
-Condition order follows a Williams (balanced Latin) square, so every condition appears in
-every position and follows every other condition equally often. Tasks are rotated
-separately so each task is paired with each condition across participants.
+Trials are blocked by display so each participant switches device only once: three trials
+on the laptop, then three in the headset (or the reverse). Across every 12 participants:
+  - half start with the laptop and half with the headset
+  - each of the 6 orders of the three workflows is used once with each block order
+    (the same workflow order is used in both blocks)
+  - tasks rotate so each task is paired with each workflow x display condition twice
 
     python -m src.backend.experiment.schedule --participants 12 > experiment/schedule.csv
 """
@@ -10,25 +13,17 @@ separately so each task is paired with each condition across participants.
 import argparse
 import csv
 import sys
-from itertools import product
+from itertools import permutations, product
 
 from ..models import Architecture
 
 DISPLAYS = ["2d", "xr"]
 CONDITIONS = [(a.value, d) for a, d in product(Architecture, DISPLAYS)]
-DEFAULT_TASKS = ["demo_task", "modulo", "exponent", "reuse_answer", "result_format", "overflow_guard"]
-
-
-def williams_row(n: int, row: int) -> list[int]:
-    first = [0]
-    low, high = 1, n - 1
-    while len(first) < n:
-        first.append(low)
-        low += 1
-        if len(first) < n:
-            first.append(high)
-            high -= 1
-    return [(value + row) % n for value in first]
+WORKFLOW_ORDERS = list(permutations(a.value for a in Architecture))
+# The seeded-bug tasks (modulo, overflow_guard) sit at one odd and one even index, so every
+# participant gets one seeded trial in each display block.
+DEFAULT_TASKS = ["demo_task", "modulo", "exponent", "reuse_answer", "overflow_guard", "result_format"]
+SEEDED_TASKS = {"modulo", "overflow_guard"}
 
 
 def build_schedule(participants: int, tasks: list[str]) -> list[dict]:
@@ -38,13 +33,14 @@ def build_schedule(participants: int, tasks: list[str]) -> list[dict]:
 
     rows = []
     for p in range(participants):
-        # Every block of n participants shifts the task pairing by one more step.
-        shift = p + p // n
-        for position, condition in enumerate(williams_row(n, p)):
-            architecture, display = CONDITIONS[condition]
-            rows.append({"participant": f"p{p + 1:02d}", "position": position + 1,
+        blocks = DISPLAYS if p % 2 == 0 else DISPLAYS[::-1]
+        workflows = WORKFLOW_ORDERS[(p // 2) % len(WORKFLOW_ORDERS)]
+        order = [(architecture, display) for display in blocks for architecture in workflows]
+        for position, (architecture, display) in enumerate(order, 1):
+            condition = CONDITIONS.index((architecture, display))
+            rows.append({"participant": f"p{p + 1:02d}", "position": position,
                          "architecture": architecture, "display": display,
-                         "task": tasks[(condition + shift) % n]})
+                         "task": tasks[(condition + p) % n]})
     return rows
 
 

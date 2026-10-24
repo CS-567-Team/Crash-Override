@@ -4,6 +4,7 @@
 """
 
 import json
+import ssl
 import tempfile
 import threading
 import unittest
@@ -13,12 +14,17 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from src.backend.agents import ProgrammerAgent, ReviewerAgent
-from src.backend.experiment.schedule import build_schedule
+from src.backend.agents import PlannerAgent, ProgrammerAgent, ReviewerAgent
+from src.backend.experiment.metrics import analyze
+from src.backend.experiment.plan import next_trial, session_plan
+from src.backend.experiment.session import TrialSession
+from src.backend.experiment.presentation import build_sections
+from src.backend.experiment.schedule import DEFAULT_TASKS, SEEDED_TASKS, build_schedule
 from src.backend.experiment.task_loader import load_task
 from src.backend.models import Architecture
 from src.backend.pipelines.workflow import Workflow, load_cached
 from src.backend.server import Handler
+from src.backend.services.certs import ensure_certificate
 from src.backend.services.model import DemoProvider
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +91,21 @@ class AgentOutputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProgrammerAgent(DemoProvider()).parse('{"summary": "no files"}')
 
+    def test_validates_planner_fields(self):
+        agent = PlannerAgent(DemoProvider())
+        self.assertEqual(agent.parse('{"summary": "s", "steps": ["a"], "edge_cases": []}')["steps"], ["a"])
+        with self.assertRaises(ValueError):
+            agent.parse('{"summary": "s", "steps": "do it", "edge_cases": []}')
+
+    def test_rejects_wrong_field_types(self):
+        with self.assertRaises(ValueError):
+            ReviewerAgent(DemoProvider()).parse('{"summary": "ok", "verdict": "approve", "issues": "none", "limitations": []}')
+
+    def test_programmer_cannot_edit_unsupplied_files(self):
+        from src.backend.services.repo import apply_replacements
+        with self.assertRaises(ValueError):
+            apply_replacements(Path("."), {"app/a.py": "x"}, {"tests/test_a.py": "y"})
+
     def test_rejects_non_json(self):
         with self.assertRaises(ValueError):
             ProgrammerAgent(DemoProvider()).parse("Sure! Here is the code.")
@@ -96,6 +117,23 @@ class TaskLoaderTests(unittest.TestCase):
         for path in (ROOT / "experiment" / "tasks").glob("*.json"):
             with self.subTest(task=path.name):
                 load_task(path)
+
+    def test_rejects_missing_task_file(self):
+        with self.assertRaises(OSError):
+            load_task(ROOT / "experiment" / "tasks" / "does_not_exist.json")
+
+    def test_rejects_task_without_prompt(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"id": "x", "title": "x"}, handle)
+        with self.assertRaises(ValueError):
+            load_task(handle.name)
+        Path(handle.name).unlink()
+
+    def test_baseline_without_app_files_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = Workflow(DemoProvider(), Architecture.PROGRAMMER_ONLY)
+            with self.assertRaisesRegex(ValueError, "no Python application files"):
+                workflow.run(load_task(TASK), baseline=Path(tmp), runtime=Path(tmp) / "runtime")
 
     def test_rejects_researcher_only_fields(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
@@ -115,6 +153,132 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(len(pairs), 36)
         positions = Counter((row["position"], row["architecture"], row["display"]) for row in rows)
         self.assertEqual(set(positions.values()), {2})
+
+    def test_one_device_switch_and_one_seeded_task_per_block(self):
+        rows = build_schedule(12, DEFAULT_TASKS)
+        for participant in {row["participant"] for row in rows}:
+            mine = [row for row in rows if row["participant"] == participant]
+            displays = [row["display"] for row in mine]
+            self.assertEqual(sum(a != b for a, b in zip(displays, displays[1:])), 1)
+            seeded = Counter(row["display"] for row in mine if row["task"] in SEEDED_TASKS)
+            self.assertEqual(seeded, {"2d": 1, "xr": 1})
+        self.assertEqual(Counter(row["display"] for row in rows if row["position"] == 1), {"2d": 6, "xr": 6})
+
+
+class DemoFixtureTests(unittest.TestCase):
+
+    def test_every_study_task_has_offline_outputs_with_expected_ground_truth(self):
+        seeded = {"modulo", "overflow_guard"}
+        with tempfile.TemporaryDirectory() as tmp:
+            for task_id in DEFAULT_TASKS:
+                with self.subTest(task=task_id):
+                    task = load_task(ROOT / "experiment" / "tasks" / f"{task_id}.json")
+                    result = Workflow(DemoProvider(), Architecture.PLANNER_PROGRAMMER_REVIEWER).run(
+                        task, baseline=BASELINE, runtime=Path(tmp))
+                    evaluation = result.metadata["evaluation"]
+                    self.assertEqual(evaluation["visible_pass_rate"], 1.0)
+                    self.assertEqual(evaluation["correct_decision"],
+                                     "reject" if task_id in seeded else "accept")
+
+
+class MetricsTests(unittest.TestCase):
+
+    def test_exports_trials_and_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            correct = generate(runtime, Architecture.PROGRAMMER_ONLY)
+            seeded = generate(runtime, Architecture.PROGRAMMER_REVIEWER, seeded=True)
+            for result, decision in [(correct, "accept"), (seeded, "accept")]:
+                session = TrialSession("p01", "2d", result)
+                session.present()
+                session.record_decision(decision, runtime / "decisions.jsonl", decision_seconds=10,
+                                        responses={"trust": 6, "confidence": 4},
+                                        interactions=[{"t": 2.5, "type": "view", "target": "after"},
+                                                      {"t": 4.0, "type": "view", "target": "after"}])
+            rows, summary = analyze(runtime, runtime / "analysis")
+            self.assertTrue((runtime / "analysis" / "trials.csv").is_file())
+
+        self.assertEqual([row["correct"] for row in rows], [True, False])
+        self.assertEqual(rows[0]["first_view_after_seconds"], 2.5)
+        self.assertEqual(rows[1]["reviewer_verdict"], "approve")
+        participant = next(row for row in summary if row["group_by"] == "participant")
+        self.assertEqual(participant["accuracy"], 0.5)
+        self.assertEqual(participant["seeded_failure_caught"], 0.0)
+        self.assertEqual(participant["mean_trust"], 6)
+
+    def test_empty_log_exports_headers_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows, summary = analyze(Path(tmp), Path(tmp) / "analysis")
+            self.assertEqual((rows, summary), ([], []))
+            self.assertIn("participant_id", (Path(tmp) / "analysis" / "trials.csv").read_text())
+
+
+class PresentationTests(unittest.TestCase):
+
+    def test_sections_follow_workflow_and_include_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            only = generate(Path(tmp), Architecture.PROGRAMMER_ONLY).participant_payload()
+            full = generate(Path(tmp), Architecture.PLANNER_PROGRAMMER_REVIEWER).participant_payload()
+        self.assertEqual([s["id"] for s in build_sections(only)], ["task", "before", "after"])
+        sections = build_sections(full)
+        self.assertEqual([s["id"] for s in sections], ["task", "plan", "before", "after", "review"])
+        self.assertIn("console calculator", sections[0]["text"])
+        self.assertIn("Planner:", sections[0]["text"])
+
+    def test_code_is_shown_as_full_files_with_changed_lines_highlighted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = generate(Path(tmp), Architecture.PROGRAMMER_ONLY).participant_payload()
+        sections = {s["id"]: s for s in build_sections(payload)}
+        before, after = sections["before"]["files"][0], sections["after"]["files"][0]
+        self.assertEqual(before["source"], payload["original_files"]["app/example_calculator.py"])
+        self.assertIn('if operator == "//":', after["source"])
+        self.assertNotIn("@@", after["source"])
+        lines = after["source"].splitlines()
+        self.assertIn('    if operator == "//":', [lines[n - 1] for n in after["highlight"]])
+        self.assertNotIn("def calculate(left: float, operator: str, right: float) -> float:",
+                         [lines[n - 1] for n in after["highlight"]])
+        self.assertTrue(before["highlight"])
+
+
+class SessionPlanTests(unittest.TestCase):
+
+    def test_plan_covers_every_condition_and_tracks_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp)
+            for architecture in Architecture:
+                generate(runtime, architecture)
+            plan = session_plan("p01", runtime)
+            self.assertEqual(len(plan), 6)
+            self.assertEqual({(t["architecture"], t["display"]) for t in plan},
+                             {(a.value, d) for a in Architecture for d in ("2d", "xr")})
+            demo = [t for t in plan if t["task"] == "demo_task"][0]
+            self.assertIsNotNone(demo["cache_id"])
+            (runtime / "decisions.jsonl").write_text(json.dumps(
+                {"participant_id": "p01", "cache_id": demo["cache_id"]}) + "\n")
+            self.assertTrue([t for t in session_plan("p01", runtime) if t["task"] == "demo_task"][0]["done"])
+            self.assertFalse(any(t["done"] for t in session_plan("p02", runtime)))
+
+    def test_participant_rows_differ(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = [(t["architecture"], t["display"]) for t in session_plan("p01", Path(tmp))]
+            second = [(t["architecture"], t["display"]) for t in session_plan("p02", Path(tmp))]
+        self.assertNotEqual(first, second)
+        self.assertIsNotNone(next_trial(session_plan("p01", Path(tmp))))
+
+    def test_rejects_id_without_number(self):
+        with self.assertRaises(ValueError):
+            session_plan("amber", Path("."))
+
+
+class CertificateTests(unittest.TestCase):
+
+    def test_certificate_is_reused_for_the_same_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cert, key = ensure_certificate(Path(tmp), "192.168.1.20")
+            first = cert.read_bytes()
+            self.assertEqual(ensure_certificate(Path(tmp), "192.168.1.20")[0].read_bytes(), first)
+            self.assertNotEqual(ensure_certificate(Path(tmp), "192.168.1.21")[0].read_bytes(), first)
+            ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, key)
 
 
 class ServerTests(unittest.TestCase):
@@ -150,7 +314,17 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(trials[0]["cache_id"], self.seeded.cache_id)
         status, payload = self.request(f"/api/trials/{self.seeded.cache_id}")
         self.assertEqual(status, 200)
-        self.assertNotIn("metadata", payload)
+        self.assertNotIn("evaluation", json.dumps(payload))
+        self.assertEqual([s["id"] for s in payload["sections"]], ["task", "before", "after", "review"])
+        self.assertEqual(len(payload["questions"]), 2)
+
+    def test_session_endpoint(self):
+        status, session = self.request("/api/session/p05")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(session["trials"]), 6)
+        self.assertEqual(session["next"]["position"], 1)
+        status, _ = self.request("/api/session/nobody")
+        self.assertEqual(status, 400)
 
     def test_rejects_path_traversal(self):
         status, _ = self.request("/api/trials/..%2F..%2Fsecrets")
@@ -167,6 +341,12 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(record["expected_decision"], "reject")
         self.assertFalse(record["correct"])
         self.assertEqual(record["decision_seconds"], 12.5)
+
+    def test_records_headset_diagnostics(self):
+        status, _ = self.request("/api/debug", {"event": "page_loaded", "immersiveVr": True})
+        self.assertEqual(status, 200)
+        record = json.loads((self.runtime / "xr_debug.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(record["event"], "page_loaded")
 
     def test_rejects_invalid_decision(self):
         status, body = self.request("/api/decisions", {

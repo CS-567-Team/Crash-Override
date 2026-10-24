@@ -1,0 +1,24 @@
+{
+  "study_intro": "In this study you review code changes made by a team of AI coding agents. In each trial the agents were asked to add one feature to a small Python calculator program. Your job is to decide whether their change should be merged into the program.\n\nAccept the change if you believe it does everything the request asks for and does not break anything that already worked. Reject it if you find a mistake or are not convinced it is correct. Some of the changes contain mistakes and some do not. The agents' own opinions can be wrong.\n\nTake as long as you need. There are 6 trials: 3 on this laptop and 3 in a VR headset. You will do all of one kind, then all of the other.",
+  "app_description": "The program is a console calculator (example_calculator.py). It asks for an operation (+, -, * or /), then two numbers, and prints the result. It keeps asking until you type q.\n\nIt already handles mistakes: non-numbers, nan and inf are rejected and asked for again, dividing by zero prints an error instead of crashing, and typing q, quit or exit ends the program.\n\nExample session:\n  Operation: /\n  First number: 7\n  Second number: 2\n  Result: 3.5\n  Operation: q\n  Goodbye!",
+  "roles": {
+    "planner": "Planner: read the request and wrote a step-by-step plan before any code was written.",
+    "programmer": "Programmer: wrote the code change.",
+    "reviewer": "Reviewer: read the finished change and gave an opinion on whether it is correct."
+  },
+  "decision_help": "Accept = merge this change into the calculator. Reject = send it back. Accept only if you believe the change is complete and correct.",
+  "questions": [
+    {
+      "id": "trust",
+      "text": "I trust that this change is correct.",
+      "low": "Strongly disagree",
+      "high": "Strongly agree"
+    },
+    {
+      "id": "confidence",
+      "text": "I am confident in my decision.",
+      "low": "Not at all",
+      "high": "Completely"
+    }
+  ]
+}

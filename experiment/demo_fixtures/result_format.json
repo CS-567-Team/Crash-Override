@@ -1,0 +1,26 @@
+{
+  "planner": {
+    "summary": "Add a format_result() helper and use it when printing results.",
+    "steps": [
+      "Format with 12 significant digits.",
+      "Expand scientific notation for results below 1e15.",
+      "Print negative zero as 0.",
+      "Use the helper in main()."
+    ],
+    "edge_cases": [
+      "2 / 3 (repeating decimal)",
+      "0.1 + 0.2 (floating-point noise)",
+      "-1 * 0 (negative zero)",
+      "Large results such as 5e14"
+    ]
+  },
+  "programmer_summary": "Added format_result() (12 significant digits, no scientific notation below 1e15, no negative zero) and used it for printed results.",
+  "reviewer": {
+    "summary": "The helper covers precision, negative zero, and large values, and only the display changed.",
+    "verdict": "approve",
+    "issues": [],
+    "limitations": [
+      "Review is based on reading the code; no tests were run."
+    ]
+  }
+}

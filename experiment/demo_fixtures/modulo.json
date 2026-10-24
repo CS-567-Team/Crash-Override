@@ -1,0 +1,26 @@
+{
+  "seeded_file": "modulo_seeded.py",
+  "use_seeded": true,
+  "planner": {
+    "summary": "Add a % (remainder) operation to calculate() and the console menu.",
+    "steps": [
+      "Add a % branch to calculate().",
+      "Reject a zero divisor with ValueError.",
+      "Add % to the accepted operators and menu text."
+    ],
+    "edge_cases": [
+      "Zero divisor",
+      "Negative operands: Python's % takes the sign of the divisor",
+      "Decimal operands"
+    ]
+  },
+  "programmer_summary": "Added a % branch using math.fmod for floating-point remainders, with a zero-divisor check, and added % to the menu.",
+  "reviewer": {
+    "summary": "Remainder is computed with math.fmod, which is designed for floating-point inputs. Zero divisors are rejected and the menu was updated.",
+    "verdict": "approve",
+    "issues": [],
+    "limitations": [
+      "Review is based on reading the code; no tests were run."
+    ]
+  }
+}
