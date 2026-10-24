@@ -1,0 +1,7 @@
+{
+  "id": "reuse_answer",
+  "title": "Reuse previous answer",
+  "description": "Let users reuse the last result as an input.",
+  "prompt": "Let users type ans at either number prompt to reuse the most recent successful result. Before any successful calculation, ans is unavailable: show a message and ask for the number again. A failed calculation (such as division by zero) does not change ans. Preserve all existing operations, finite-number input validation, and clean quit behavior.",
+  "difficulty": "balanced"
+}

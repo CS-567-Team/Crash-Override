@@ -11,3 +11,4 @@ class ReviewerAgent(BaseAgent):
         'Return only JSON with "summary" (string), "verdict" ("approve" or "request_changes"), '
         '"issues" (list of strings), and "limitations" (list of strings).'
     )
+    required = {"summary": str, "verdict": str, "issues": list, "limitations": list}

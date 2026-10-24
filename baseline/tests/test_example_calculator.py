@@ -26,7 +26,7 @@ class CalculatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "divide by zero"):
             calculate(1, "/", 0)
         with self.assertRaisesRegex(ValueError, "Choose"):
-            calculate(1, "%", 2)
+            calculate(1, "^", 2)
 
     def run_console(self, text):
         return subprocess.run(

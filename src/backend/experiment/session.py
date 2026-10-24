@@ -38,10 +38,19 @@ class TrialSession:
             
         return self.result.participant_payload()
 
-    def record_decision(self, decision: str, path: str | Path) -> dict:
-        
+    def record_decision(self, decision: str, path: str | Path, *,
+                        decision_seconds: float | None = None, responses: dict | None = None,
+                        interactions: list | None = None) -> dict:
+        """Append one decision. The web UI measures decision_seconds client-side and sends
+        Likert responses and interaction events (tab/panel views) for later analysis."""
+
         if decision not in {"accept", "reject"}:
             raise ValueError("Decision must be accept or reject")
+
+        if decision_seconds is None:
+            decision_seconds = perf_counter() - self.started_at
+
+        expected = self.result.metadata.get("evaluation", {}).get("correct_decision")
         
         path = Path(path)
         trial_id = next_trial_id(path)
@@ -49,7 +58,10 @@ class TrialSession:
         event = {"trial_id": trial_id, "participant_id": self.participant_id,
                  "display": self.display, "cache_id": self.result.cache_id,
                  "task_id": self.result.task["id"], "architecture": self.result.architecture,
-                 "decision": decision, "decision_seconds": perf_counter() - self.started_at,
+                 "decision": decision, "decision_seconds": decision_seconds,
+                 "expected_decision": expected,
+                 "correct": None if expected is None else decision == expected,
+                 "responses": responses or {}, "interactions": interactions or [],
                  "timestamp": datetime.now(timezone.utc).isoformat()}
         
         path.parent.mkdir(parents=True, exist_ok=True)
