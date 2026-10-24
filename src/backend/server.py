@@ -8,6 +8,7 @@ the server and are only used to score decisions."""
 
 import json
 import re
+import ssl
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ from urllib.parse import unquote, urlparse
 from .experiment.plan import next_trial, session_plan
 from .experiment.presentation import build_sections, load_context
 from .experiment.session import TrialSession
+from .services.certs import ensure_certificate, lan_address
 from .pipelines.workflow import load_cached
 
 WEB_ROOT = Path(__file__).resolve().parents[1] / "frontend" / "web"
@@ -117,10 +119,22 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json({"trial_id": event["trial_id"]})
 
 
-def serve(host: str, port: int, runtime: Path) -> None:
-    handler = partial(Handler, runtime=Path(runtime).resolve())
-    server = ThreadingHTTPServer((host, port), handler)
-    print(f"Serving participant UI at http://{'localhost' if host == '127.0.0.1' else host}:{port}")
+def serve(host: str, port: int, runtime: Path, https: bool = False) -> None:
+    runtime = Path(runtime).resolve()
+    server = ThreadingHTTPServer((host, port), partial(Handler, runtime=runtime))
+
+    if https:
+        address = lan_address()
+        cert, key = ensure_certificate(runtime / "certs", address)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        print(f"Serving over HTTPS. In the Oculus browser open:  https://{address}:{port}")
+        print("The first time, the headset warns the connection is not private: "
+              "choose Advanced, then Proceed. This is expected for your own laptop.")
+    else:
+        print(f"Serving participant VR page at http://localhost:{port}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

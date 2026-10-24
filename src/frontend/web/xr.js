@@ -1,5 +1,5 @@
 // WebXR condition. Each section of a trial is a panel on an arc around the participant in
-// workflow order (task -> original code -> plan -> code changes -> review), with the
+// workflow order (task -> plan -> code before -> code after -> review), with the
 // decision panel in front at waist height. Runs the participant's VR trials back to back.
 //
 // Headset controls
@@ -11,7 +11,6 @@
 // Laptop preview: drag to look, W A S D to walk, wheel scrolls, click buttons.
 
 import * as THREE from "three";
-import { VRButton } from "./vendor/VRButton.js";
 import { ROLE_COLORS, participantFromUrl, fetchSession, fetchTrial, InteractionLog, submitDecision } from "./common.js";
 
 const PX_PER_M = 1000;
@@ -24,7 +23,7 @@ const PULL_SPEED = 1.5;
 const SNAP_TURN = Math.PI / 6;
 const SANS = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 const MONO = "ui-monospace, Menlo, Consolas, monospace";
-const WIDTHS = { task: 1.4, original: 1.5, plan: 1.2, diff: 1.7, review: 1.2 };
+const WIDTHS = { task: 1.4, plan: 1.2, before: 1.6, after: 1.6, review: 1.2 };
 
 const participant = participantFromUrl();
 const log = new InteractionLog();
@@ -159,11 +158,13 @@ function wrapCode(ctx, text, maxWidth) {
 const STYLES = {
   prose: { font: `36px ${SANS}`, color: "#1d2330", height: 48 },
   heading: { font: `700 34px ${SANS}`, color: "#2b3a55", height: 50 },
+  file: { font: `600 30px ${MONO}`, color: "#5d6675", height: 46 },
   code: { font: `30px ${MONO}`, color: "#1d2330", height: 40 },
-  add: { font: `30px ${MONO}`, color: "#1b6b3a", height: 40, bg: "#e6f4ea" },
-  del: { font: `30px ${MONO}`, color: "#a12c2c", height: 40, bg: "#fbe9e9" },
-  hunk: { font: `30px ${MONO}`, color: "#2b5fc0", height: 40 },
+  // Changed lines: tinted red-ish in the old code, green-ish in the new code.
+  before: { font: `30px ${MONO}`, color: "#1d2330", height: 40, bg: "#fde2e1" },
+  after: { font: `30px ${MONO}`, color: "#1d2330", height: 40, bg: "#dcf3e2" },
 };
+const GUTTER = 5;  // characters reserved for line numbers
 
 class SectionPanel extends Panel {
   constructor(section) {
@@ -191,23 +192,22 @@ class SectionPanel extends Panel {
         out.push({ style: heading ? "heading" : "prose", text: line });
       }
     };
-    const code = (text, colored) => {
+    const code = (file, side) => {
       ctx.font = STYLES.code.font;
-      for (const raw of text.split("\n")) {
-        const style = !colored ? "code"
-          : raw.startsWith("@@") ? "hunk"
-          : raw.startsWith("+") && !raw.startsWith("+++") ? "add"
-          : raw.startsWith("-") && !raw.startsWith("---") ? "del" : "code";
-        wrapCode(ctx, raw, maxWidth).forEach((line) => out.push({ style, text: line }));
-      }
+      this.charWidth = ctx.measureText("M").width;
+      const changed = new Set(file.highlight);
+      out.push({ style: "file", text: file.name });
+      file.source.replace(/\n$/, "").split("\n").forEach((raw, i) => {
+        const style = changed.has(i + 1) ? side : "code";
+        wrapCode(ctx, raw, maxWidth - GUTTER * this.charWidth).forEach((text, part) =>
+          out.push({ style, text, number: part ? "" : String(i + 1) }));
+      });
     };
 
-    if (section.kind === "diff") {
-      prose(`${section.summary}\n\nGreen lines were added, red lines were removed.`);
+    if (section.kind === "code") {
+      prose(section.note);
       out.push({ style: "prose", text: "" });
-      code(section.text, true);
-    } else if (section.kind === "code") {
-      code(section.text, false);
+      section.files.forEach((file) => code(file, section.side));
     } else {
       prose(section.text);
     }
@@ -245,8 +245,15 @@ class SectionPanel extends Panel {
         ctx.fillRect(20, y - 4, canvas.width - 40, style.height);
       }
       ctx.font = style.font;
-      ctx.fillStyle = style.color;
-      ctx.fillText(line.text, 40, y);
+      if (line.number !== undefined) {
+        ctx.fillStyle = "#9aa1ac";
+        ctx.fillText(line.number.padStart(GUTTER - 2), 40, y);
+        ctx.fillStyle = style.color;
+        ctx.fillText(line.text, 40 + GUTTER * this.charWidth, y);
+      } else {
+        ctx.fillStyle = style.color;
+        ctx.fillText(line.text, 40, y);
+      }
       y += style.height;
     }
     this.up.disabled = this.offset === 0;
@@ -270,6 +277,7 @@ class DecisionPanel extends Panel {
 
   message(text, next = null) {
     this.mode = "message";
+    this.title = "Code review study";
     this.text = text;
     this.nextButton = next && { label: next.label, x: 40, y: 870, w: 420, h: 90, primary: true, action: next.action };
     this.buttons = [this.nextButton, this.reset].filter(Boolean);
@@ -278,6 +286,7 @@ class DecisionPanel extends Panel {
 
   startTrial(trial, position) {
     this.mode = "trial";
+    this.title = "Your decision";
     this.trial = trial;
     this.position = position;
     this.responses = {};
@@ -329,9 +338,9 @@ class DecisionPanel extends Panel {
     if (this.mode === "message") {
       this.drawFrame();
       ctx.fillStyle = "#1d2330";
-      ctx.font = `40px ${SANS}`;
+      ctx.font = `36px ${SANS}`;
       ctx.textBaseline = "top";
-      wrapProse(ctx, this.text, canvas.width - 80).forEach((line, i) => ctx.fillText(line, 40, 140 + i * 56));
+      wrapProse(ctx, this.text, canvas.width - 80).forEach((line, i) => ctx.fillText(line, 40, 130 + i * 48));
       this.finish();
       return;
     }
@@ -371,7 +380,6 @@ renderer.xr.enabled = true;
 // seated or standing. y = 0 is eye height.
 renderer.xr.setReferenceSpaceType("local");
 document.body.append(renderer.domElement);
-document.body.append(VRButton.createButton(renderer));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#1b1f27");
@@ -422,9 +430,33 @@ placeDecisionPanel(true);
 
 // ---------------------------------------------------------------- session flow
 
+const VR_INTRO =
+  "Welcome to the VR part. Each trial puts panels around you: start with 'Your task' on the far left, " +
+  "then look right through each panel. Make your decision on the panel in front of you.\n\n" +
+  "Trigger: click. Grip (hold): grab and move a panel; while holding, the thumbstick pushes it away " +
+  "or pulls it closer. Left thumbstick: walk. Right thumbstick: scroll a panel (up/down) or turn (left/right).\n\n";
+
+// While the participant is on the laptop, check every few seconds so the headset is
+// ready by itself when it is their turn in VR.
+let waiting = null;
+function waitForVrTurn() {
+  clearTimeout(waiting);
+  waiting = setTimeout(async () => {
+    try {
+      const { next } = await fetchSession(participant);
+      if (next?.display === "xr") return showNext();
+    } catch {
+      // Server unreachable for a moment; keep checking.
+    }
+    waitForVrTurn();
+  }, 3000);
+}
+
 async function showNext() {
+  clearTimeout(waiting);
   const session = await fetchSession(participant);
   const next = session.next;
+  const vrStarted = session.trials.some((t) => t.display === "xr" && t.done);
   sectionPanels.forEach((panel) => panel.dispose());
   sectionPanels = [];
   resetLayout();
@@ -435,14 +467,12 @@ async function showNext() {
   } else if (!next.cache_id) {
     decisionPanel.message(`Trial ${next.position} has no generated agent output yet (${next.task}, ${next.architecture}). Please tell the researcher.`);
   } else if (next.display !== "xr") {
-    decisionPanel.message(`Trial ${next.position} of 6 is on the laptop. Please remove the headset and continue there.`,
-      { label: "Check again", action: () => showNext() });
+    decisionPanel.message(vrStarted
+      ? "The VR part is complete. Please remove the headset and continue on the laptop."
+      : `Hello, ${participant}. The VR part starts after the laptop trials. This screen will update by itself when it is time.`);
+    waitForVrTurn();
   } else {
-    const intro = next.position === 1
-      ? "Welcome! You will review code changes made by AI agents. Start with the 'Your task' panel on the far left, then look right through each panel in order.\n\n"
-      : "";
-    decisionPanel.message(`${intro}Trial ${next.position} of 6 is ready.\n\nGrip: grab and move a panel (thumbstick pushes or pulls it). ` +
-      "Left thumbstick: walk. Right thumbstick: scroll / turn. Trigger: click.",
+    decisionPanel.message(`${vrStarted ? "" : VR_INTRO}Trial ${next.position} of 6 is ready.`,
       { label: "Start trial", action: () => startTrial(next) });
   }
 }
@@ -653,11 +683,35 @@ window.addEventListener("resize", () => {
 
 // ---------------------------------------------------------------- start
 
+// A large Enter VR button, since this is the participant's first step in the headset.
+const enterButton = document.getElementById("enter");
+
+async function setUpEnterButton() {
+  const supported = navigator.xr && await navigator.xr.isSessionSupported("immersive-vr").catch(() => false);
+  if (!supported) {
+    enterButton.disabled = true;
+    enterButton.textContent = window.isSecureContext ? "VR not available here (preview only)" : "VR needs https:// or localhost";
+    return;
+  }
+  enterButton.onclick = async () => {
+    try {
+      const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] });
+      await renderer.xr.setSession(session);
+    } catch (error) {
+      hint.textContent = `Could not enter VR: ${error.message}`;
+    }
+  };
+}
+
+renderer.xr.addEventListener("sessionstart", () => { enterButton.hidden = true; });
+renderer.xr.addEventListener("sessionend", () => { enterButton.hidden = false; });
+setUpEnterButton();
+
 if (!participant) {
   decisionPanel.message("No participant ID. Open this page from the VR start page.");
 } else {
-  hint.textContent = `Participant ${participant}. Laptop preview: drag to look, W A S D to walk, click buttons, ` +
-                     "scroll wheel over a panel. On a headset, press Enter VR.";
+  hint.textContent = `Participant ${participant}. Press Enter VR to begin. ` +
+                     "(Laptop preview: drag to look, W A S D to walk, click buttons, scroll wheel over a panel.)";
   showNext().catch((error) => decisionPanel.message(error.message));
 }
 

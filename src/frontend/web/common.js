@@ -3,9 +3,9 @@
 
 export const ROLE_COLORS = {
   task: "#4a5a70",
-  original: "#5b6b7f",
   plan: "#7a4fd1",
-  diff: "#1f7a5a",
+  before: "#5b6b7f",
+  after: "#1f7a5a",
   review: "#c0612b",
   decision: "#2b5fc0",
 };

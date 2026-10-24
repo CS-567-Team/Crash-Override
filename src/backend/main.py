@@ -69,8 +69,11 @@ def main() -> None:
     serve = commands.add_parser("serve",
                                 help="Serve the 2D and WebXR participant interfaces")
     serve.add_argument("--host",
-                       default="127.0.0.1",
-                       help="Use 0.0.0.0 to reach it from a headset on the same network")
+                       default=None,
+                       help="Defaults to 127.0.0.1, or 0.0.0.0 with --https")
+    serve.add_argument("--https",
+                       action="store_true",
+                       help="Serve over HTTPS on the local network so the Oculus can connect over Wi-Fi")
     serve.add_argument("--port",
                        type=int,
                        default=8000)
@@ -121,7 +124,8 @@ def main() -> None:
         elif args.command == "serve":
 
             from .server import serve as run_server
-            run_server(args.host, args.port, args.runtime)
+            host = args.host or ("0.0.0.0" if args.https else "127.0.0.1")
+            run_server(host, args.port, args.runtime, https=args.https)
 
         else:
             

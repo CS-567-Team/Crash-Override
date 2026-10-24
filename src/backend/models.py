@@ -62,6 +62,7 @@ class WorkflowResult:
             "agents": [{"role": a["role"], "data": a["data"]} for a in self.agents],
             "diff": self.diff,
             "original_files": self.original_files(),
+            "files": self.files,
         }
 
     def original_files(self) -> dict[str, str]:

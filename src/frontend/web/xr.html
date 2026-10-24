@@ -10,6 +10,10 @@
     #hint { position: fixed; left: 16px; top: 16px; right: 16px; max-width: 560px; padding: 10px 14px;
             background: rgba(0, 0, 0, .55); border-radius: 8px; pointer-events: none; }
     canvas { display: block; }
+    #enter { position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); padding: 22px 56px;
+             font: 600 30px system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; background: #2b5fc0;
+             border: 3px solid #8fb3ff; border-radius: 16px; cursor: pointer; }
+    #enter:disabled { background: #3a4150; border-color: #5d6675; color: #c8ccd4; font-size: 20px; cursor: default; }
   </style>
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.js" } }
@@ -17,6 +21,7 @@
 </head>
 <body>
   <div id="hint">Loading…</div>
+  <button id="enter">Enter VR</button>
   <script type="module" src="xr.js"></script>
 </body>
 </html>

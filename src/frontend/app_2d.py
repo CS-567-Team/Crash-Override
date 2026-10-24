@@ -13,6 +13,9 @@ import time
 from pathlib import Path
 
 import streamlit as st
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import PythonLexer
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -43,13 +46,35 @@ def text_to_markdown(text: str) -> str:
     return "\n".join(lines)
 
 
+# Changed lines are tinted red-ish in the old code and green-ish in the new code.
+HIGHLIGHT = {"before": "#fde2e1", "after": "#dcf3e2"}
+
+
+def show_code(file: dict, side: str) -> None:
+    """Syntax-highlighted code, one row per line, with changed lines tinted across the full width."""
+    formatter = HtmlFormatter(nowrap=True, cssclass="code")
+    lines = highlight(file["source"], PythonLexer(), formatter).rstrip("\n").split("\n")
+    changed = set(file["highlight"])
+    rows = "".join(
+        f'<div class="row{" changed" if number in changed else ""}"><span class="num">{number}</span>'
+        f'<span class="src">{line or " "}</span></div>'
+        for number, line in enumerate(lines, 1))
+    st.caption(file["name"])
+    st.html(f"""<style>{formatter.get_style_defs(".code")}
+        .code {{ font: 14px/1.55 ui-monospace, Menlo, Consolas, monospace; background: #f8f9fb;
+                 border: 1px solid #e3e6eb; border-radius: 6px; padding: 10px 0; overflow-x: auto; }}
+        .code .row {{ display: flex; white-space: pre; min-width: max-content; }}
+        .code .row.changed {{ background: {HIGHLIGHT[side]}; }}
+        .code .num {{ width: 3.5em; flex: none; padding-right: 1em; text-align: right; color: #9aa1ac; user-select: none; }}
+        .code .src {{ padding-right: 16px; }}
+        </style><div class="code">{rows}</div>""")
+
+
 def show_section(section: dict) -> None:
-    if section["kind"] == "diff":
-        st.markdown(f"**Programmer's summary:** {section['summary']}")
-        st.caption("Lines starting with + were added; lines starting with - were removed.")
-        st.code(section["text"], language="diff")
-    elif section["kind"] == "code":
-        st.code(section["text"], language="python", line_numbers=True)
+    if section["kind"] == "code":
+        st.markdown(text_to_markdown(section["note"]))
+        for file in section["files"]:
+            show_code(file, section["side"])
     else:
         st.markdown(text_to_markdown(section["text"]))
 
@@ -110,6 +135,15 @@ def run_trial(participant: str, trial: dict, preview: bool = False) -> None:
         st.rerun()
 
 
+@st.fragment(run_every=3)
+def wait_for_vr(participant: str) -> None:
+    """Re-check every few seconds and move on once the VR trials are done."""
+    upcoming = next_trial(session_plan(participant, RUNTIME))
+    if upcoming is None or upcoming["display"] != "xr":
+        st.rerun(scope="app")
+    st.caption("This page moves on by itself when the VR part is finished.")
+
+
 # ---------------------------------------------------------------- sidebar
 
 with st.sidebar:
@@ -161,12 +195,18 @@ elif plan:
                  f"({upcoming['task']} / {upcoming['architecture']}). Run: "
                  "python -m src.backend.main generate --all")
     elif upcoming["display"] == "xr":
-        st.title(f"Trial {upcoming['position']} of 6 is in VR")
-        st.markdown("Please put on the headset. The trial will be waiting for you there.\n\n"
-                    "When you have submitted your decision in VR and taken the headset off, click Continue.")
-        st.caption("Researcher: the VR server must be running (python -m src.backend.main serve) and the headset "
-                   f"should be on http://localhost:8000 with participant ID {participant}.")
-        if st.button("Continue", type="primary"):
-            st.rerun()
+        laptop_done = any(trial["done"] for trial in plan if trial["display"] == "2d")
+        remaining = sum(not trial["done"] for trial in plan if trial["display"] == "xr")
+        if laptop_done:
+            st.title("Laptop part complete")
+            st.success("Nice work. The rest of the study is in the VR headset.")
+        else:
+            st.title("Part 1: VR headset")
+        st.markdown(f"Please put on the headset and press the big blue **Enter VR** button in front of you. "
+                    f"Your next {remaining} trials are in VR.\n\n"
+                    "When the headset tells you the VR part is complete, take it off and come back here.")
+        st.caption("Researcher: the headset should already show the VR page for participant "
+                   f"{participant} (see README, 'Oculus setup').")
+        wait_for_vr(participant)
     else:
         run_trial(participant, upcoming)

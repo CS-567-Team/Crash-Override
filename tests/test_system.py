@@ -4,6 +4,7 @@
 """
 
 import json
+import ssl
 import tempfile
 import threading
 import unittest
@@ -16,11 +17,12 @@ from pathlib import Path
 from src.backend.agents import ProgrammerAgent, ReviewerAgent
 from src.backend.experiment.plan import next_trial, session_plan
 from src.backend.experiment.presentation import build_sections
-from src.backend.experiment.schedule import DEFAULT_TASKS, build_schedule
+from src.backend.experiment.schedule import DEFAULT_TASKS, SEEDED_TASKS, build_schedule
 from src.backend.experiment.task_loader import load_task
 from src.backend.models import Architecture
 from src.backend.pipelines.workflow import Workflow, load_cached
 from src.backend.server import Handler
+from src.backend.services.certs import ensure_certificate
 from src.backend.services.model import DemoProvider
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +120,16 @@ class ScheduleTests(unittest.TestCase):
         positions = Counter((row["position"], row["architecture"], row["display"]) for row in rows)
         self.assertEqual(set(positions.values()), {2})
 
+    def test_one_device_switch_and_one_seeded_task_per_block(self):
+        rows = build_schedule(12, DEFAULT_TASKS)
+        for participant in {row["participant"] for row in rows}:
+            mine = [row for row in rows if row["participant"] == participant]
+            displays = [row["display"] for row in mine]
+            self.assertEqual(sum(a != b for a, b in zip(displays, displays[1:])), 1)
+            seeded = Counter(row["display"] for row in mine if row["task"] in SEEDED_TASKS)
+            self.assertEqual(seeded, {"2d": 1, "xr": 1})
+        self.assertEqual(Counter(row["display"] for row in rows if row["position"] == 1), {"2d": 6, "xr": 6})
+
 
 class DemoFixtureTests(unittest.TestCase):
 
@@ -141,13 +153,25 @@ class PresentationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             only = generate(Path(tmp), Architecture.PROGRAMMER_ONLY).participant_payload()
             full = generate(Path(tmp), Architecture.PLANNER_PROGRAMMER_REVIEWER).participant_payload()
-        self.assertEqual([s["id"] for s in build_sections(only)], ["task", "original", "diff"])
+        self.assertEqual([s["id"] for s in build_sections(only)], ["task", "before", "after"])
         sections = build_sections(full)
-        self.assertEqual([s["id"] for s in sections], ["task", "original", "plan", "diff", "review"])
+        self.assertEqual([s["id"] for s in sections], ["task", "plan", "before", "after", "review"])
         self.assertIn("console calculator", sections[0]["text"])
         self.assertIn("Planner:", sections[0]["text"])
-        self.assertIn("def calculate", sections[1]["text"])
-        self.assertNotIn("+    if operator", sections[1]["text"])
+
+    def test_code_is_shown_as_full_files_with_changed_lines_highlighted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = generate(Path(tmp), Architecture.PROGRAMMER_ONLY).participant_payload()
+        sections = {s["id"]: s for s in build_sections(payload)}
+        before, after = sections["before"]["files"][0], sections["after"]["files"][0]
+        self.assertEqual(before["source"], payload["original_files"]["app/example_calculator.py"])
+        self.assertIn('if operator == "//":', after["source"])
+        self.assertNotIn("@@", after["source"])
+        lines = after["source"].splitlines()
+        self.assertIn('    if operator == "//":', [lines[n - 1] for n in after["highlight"]])
+        self.assertNotIn("def calculate(left: float, operator: str, right: float) -> float:",
+                         [lines[n - 1] for n in after["highlight"]])
+        self.assertTrue(before["highlight"])
 
 
 class SessionPlanTests(unittest.TestCase):
@@ -178,6 +202,17 @@ class SessionPlanTests(unittest.TestCase):
     def test_rejects_id_without_number(self):
         with self.assertRaises(ValueError):
             session_plan("amber", Path("."))
+
+
+class CertificateTests(unittest.TestCase):
+
+    def test_certificate_is_reused_for_the_same_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cert, key = ensure_certificate(Path(tmp), "192.168.1.20")
+            first = cert.read_bytes()
+            self.assertEqual(ensure_certificate(Path(tmp), "192.168.1.20")[0].read_bytes(), first)
+            self.assertNotEqual(ensure_certificate(Path(tmp), "192.168.1.21")[0].read_bytes(), first)
+            ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, key)
 
 
 class ServerTests(unittest.TestCase):
@@ -214,7 +249,7 @@ class ServerTests(unittest.TestCase):
         status, payload = self.request(f"/api/trials/{self.seeded.cache_id}")
         self.assertEqual(status, 200)
         self.assertNotIn("evaluation", json.dumps(payload))
-        self.assertEqual([s["id"] for s in payload["sections"]], ["task", "original", "diff", "review"])
+        self.assertEqual([s["id"] for s in payload["sections"]], ["task", "before", "after", "review"])
         self.assertEqual(len(payload["questions"]), 2)
 
     def test_session_endpoint(self):
