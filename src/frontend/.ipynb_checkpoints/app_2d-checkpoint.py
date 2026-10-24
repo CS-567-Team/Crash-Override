@@ -20,7 +20,7 @@ fake_user_prompt = json.dumps({
 })
 
 # Let the presenter swap between three required workflows
-workflow = st.radio("Active Workflow (Demo purposes):",
+workflow = st.radio("Active Workflow:",
                     ["Programmer Only", "Programmer + Reviewer", "Planner + Programmer + Reviewer"])
 st.markdown("---")
 
