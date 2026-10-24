@@ -4,8 +4,8 @@ import sys
 import os
 
 # Point to backend so we can use DemoProvider
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
-from services.model import DemoProvider
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from backend.services.model import DemoProvider
 
 st.title("Task: Add Floor Division Feature")
 st.write("Review the agent's output and decide if you want to accept this code.")
