@@ -9,6 +9,7 @@ the server and are only used to score decisions."""
 import json
 import re
 import ssl
+from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -92,7 +93,12 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/decisions":
+        route = urlparse(self.path).path
+
+        if route == "/api/debug":
+            return self.record_debug()
+
+        if route != "/api/decisions":
             return self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
         try:
@@ -117,6 +123,21 @@ class Handler(SimpleHTTPRequestHandler):
 
         # Participants only learn that the decision was saved, not whether it was correct.
         return self.send_json({"trial_id": event["trial_id"]})
+
+
+    def record_debug(self):
+        """Headset diagnostics (VR support, controllers, errors) for troubleshooting."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY:
+                raise ValueError("Request too large")
+            event = json.loads(self.rfile.read(length))
+        except (ValueError, TypeError):
+            return self.send_json({"error": "Invalid debug event"}, HTTPStatus.BAD_REQUEST)
+        self.runtime.mkdir(parents=True, exist_ok=True)
+        with (self.runtime / "xr_debug.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), **event}) + "\n")
+        return self.send_json({"ok": True})
 
 
 def serve(host: str, port: int, runtime: Path, https: bool = False) -> None:

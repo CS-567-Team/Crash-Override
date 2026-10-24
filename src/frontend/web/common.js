@@ -58,3 +58,13 @@ export async function submitDecision({ cacheId, participant, decision, responses
   if (!response.ok) throw new Error(data.error || "Could not save decision");
   return data;
 }
+
+// Sends what the headset sees (VR support, controllers, errors) to runtime/xr_debug.jsonl
+// on the laptop, so problems can be diagnosed without describing them by hand.
+export function debug(event, details = {}) {
+  fetch("/api/debug", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, participant: participantFromUrl(), ...details }),
+  }).catch(() => {});
+}

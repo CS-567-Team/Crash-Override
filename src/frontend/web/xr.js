@@ -11,7 +11,10 @@
 // Laptop preview: drag to look, W A S D to walk, wheel scrolls, click buttons.
 
 import * as THREE from "three";
-import { ROLE_COLORS, participantFromUrl, fetchSession, fetchTrial, InteractionLog, submitDecision } from "./common.js";
+import { ROLE_COLORS, participantFromUrl, fetchSession, fetchTrial, InteractionLog, submitDecision, debug } from "./common.js";
+
+window.addEventListener("error", (event) => debug("error", { message: event.message, where: `${event.filename}:${event.lineno}` }));
+window.addEventListener("unhandledrejection", (event) => debug("error", { message: String(event.reason) }));
 
 const PX_PER_M = 1000;
 const RADIUS = 2.0;
@@ -560,7 +563,12 @@ const controllers = [0, 1].map((index) => {
   ray.scale.z = 5;
   controller.add(ray);
   controller.userData = { ray, held: null, inputSource: null, turned: false, lastScroll: 0 };
-  controller.addEventListener("connected", (event) => { controller.userData.inputSource = event.data; });
+  controller.addEventListener("connected", (event) => {
+    controller.userData.inputSource = event.data;
+    debug("controller_connected", { index, handedness: event.data.handedness, profiles: event.data.profiles,
+                                    axes: event.data.gamepad?.axes.length ?? null,
+                                    buttons: event.data.gamepad?.buttons.length ?? null });
+  });
   controller.addEventListener("disconnected", () => { controller.userData.inputSource = null; });
   controller.addEventListener("selectstart", () => activate(controllerHit(controller)));
   controller.addEventListener("squeezestart", () => {
@@ -688,6 +696,9 @@ const enterButton = document.getElementById("enter");
 
 async function setUpEnterButton() {
   const supported = navigator.xr && await navigator.xr.isSessionSupported("immersive-vr").catch(() => false);
+  debug("page_loaded", { userAgent: navigator.userAgent, secure: window.isSecureContext,
+                         webxr: Boolean(navigator.xr), immersiveVr: Boolean(supported),
+                         screen: `${window.innerWidth}x${window.innerHeight}` });
   if (!supported) {
     enterButton.disabled = true;
     enterButton.textContent = window.isSecureContext ? "VR not available here (preview only)" : "VR needs https:// or localhost";
@@ -699,11 +710,15 @@ async function setUpEnterButton() {
       await renderer.xr.setSession(session);
     } catch (error) {
       hint.textContent = `Could not enter VR: ${error.message}`;
+      debug("enter_vr_failed", { message: error.message });
     }
   };
 }
 
-renderer.xr.addEventListener("sessionstart", () => { enterButton.hidden = true; });
+renderer.xr.addEventListener("sessionstart", () => {
+  enterButton.hidden = true;
+  debug("entered_vr", { referenceSpace: "local" });
+});
 renderer.xr.addEventListener("sessionend", () => { enterButton.hidden = false; });
 setUpEnterButton();
 

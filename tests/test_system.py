@@ -276,6 +276,12 @@ class ServerTests(unittest.TestCase):
         self.assertFalse(record["correct"])
         self.assertEqual(record["decision_seconds"], 12.5)
 
+    def test_records_headset_diagnostics(self):
+        status, _ = self.request("/api/debug", {"event": "page_loaded", "immersiveVr": True})
+        self.assertEqual(status, 200)
+        record = json.loads((self.runtime / "xr_debug.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(record["event"], "page_loaded")
+
     def test_rejects_invalid_decision(self):
         status, body = self.request("/api/decisions", {
             "cache_id": self.seeded.cache_id, "participant_id": "p99", "display": "xr", "decision": "maybe"})
