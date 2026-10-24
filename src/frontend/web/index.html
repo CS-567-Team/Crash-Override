@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crash Override Trials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Crash Override: Trial Launcher</h1>
+  <p class="muted">Researcher view. Enter the participant ID, then open each trial in the display condition from the schedule.</p>
+  <div class="card">
+    <label for="participant">Participant ID</label>
+    <input id="participant" placeholder="p01" autocomplete="off">
+  </div>
+  <div class="card">
+    <strong>Cached trials</strong>
+    <ul class="trials" id="trials"><li class="muted">Loading…</li></ul>
+  </div>
+</main>
+<script type="module">
+  const list = document.getElementById("trials");
+  const participant = document.getElementById("participant");
+  participant.value = localStorage.getItem("participant") || "";
+  participant.addEventListener("input", () => localStorage.setItem("participant", participant.value.trim()));
+
+  function open(view, cacheId) {
+    const id = participant.value.trim();
+    if (!id) { participant.focus(); alert("Enter a participant ID first."); return; }
+    location.href = `${view}.html?trial=${encodeURIComponent(cacheId)}&participant=${encodeURIComponent(id)}`;
+  }
+
+  const trials = await (await fetch("/api/trials")).json();
+  list.replaceChildren(...(trials.length ? trials.map((trial) => {
+    const item = document.createElement("li");
+    item.innerHTML = `<span><strong></strong><br><span class="muted"></span></span>
+      <span class="row" style="margin:0"><button data-view="2d">Open 2D</button><button data-view="xr">Open XR</button></span>`;
+    item.querySelector("strong").textContent = `${trial.cache_id} · ${trial.task}`;
+    item.querySelector(".muted").textContent = trial.architecture.replaceAll("_", " + ");
+    item.querySelectorAll("button").forEach((b) => b.onclick = () => open(b.dataset.view, trial.cache_id));
+    return item;
+  }) : [Object.assign(document.createElement("li"), {
+    className: "muted", textContent: "No cached trials. Run: python -m src.backend.main generate",
+  })]));
+</script>
+</body>
+</html>

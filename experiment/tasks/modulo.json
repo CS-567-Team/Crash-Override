@@ -1,0 +1,7 @@
+{
+  "id": "modulo",
+  "title": "Modulo operation",
+  "description": "Extend the console calculator with a modulo (remainder) operation.",
+  "prompt": "Support % in calculate() and the console menu using Python's modulo semantics. Reject modulo by zero with ValueError and keep the console running. Preserve +, -, *, /, finite-number input validation, and clean quit behavior.",
+  "difficulty": "balanced"
+}

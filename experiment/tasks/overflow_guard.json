@@ -1,0 +1,7 @@
+{
+  "id": "overflow_guard",
+  "title": "Overflow protection",
+  "description": "Stop the calculator from reporting infinite results.",
+  "prompt": "Inputs are already required to be finite numbers; make results finite too. If any calculation produces a result that is not a finite number, raise ValueError with a helpful message and keep the console running. Preserve all existing operations, input validation, and quit behavior.",
+  "difficulty": "balanced"
+}

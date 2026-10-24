@@ -12,3 +12,4 @@ class ProgrammerAgent(BaseAgent):
         "complete replacement source text). Do not return patches, delete files, modify "
         "tests, or claim tests passed."
     )
+    required = {"summary": str, "files": dict}

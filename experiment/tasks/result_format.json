@@ -1,0 +1,7 @@
+{
+  "id": "result_format",
+  "title": "Readable result formatting",
+  "description": "Show results with more precision and without confusing notation.",
+  "prompt": "Display results with up to 12 significant digits (for example 2 / 3 shows 0.666666666667 and 1234567 + 1 shows 1234568). Do not use scientific notation for results smaller than 1e15 in magnitude. Whole numbers show no decimal point, and negative zero is displayed as 0. Preserve all operations, input validation, and quit behavior.",
+  "difficulty": "balanced"
+}

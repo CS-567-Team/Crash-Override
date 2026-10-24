@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review Trial XR</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1f27; color: #e8ebf0;
+                 font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    #hint { position: fixed; left: 16px; top: 16px; right: 16px; max-width: 560px; padding: 10px 14px;
+            background: rgba(0, 0, 0, .55); border-radius: 8px; pointer-events: none; }
+    canvas { display: block; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="hint">Loading…</div>
+  <script type="module" src="xr.js"></script>
+</body>
+</html>

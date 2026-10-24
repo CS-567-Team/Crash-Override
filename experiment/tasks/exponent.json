@@ -1,0 +1,7 @@
+{
+  "id": "exponent",
+  "title": "Exponent operation",
+  "description": "Extend the console calculator with exponentiation.",
+  "prompt": "Support ** (exponentiation) in calculate() and the console menu. Results must be finite real numbers: raise ValueError for any power that cannot produce one, and keep the console running. Preserve +, -, *, /, finite-number input validation, and clean quit behavior.",
+  "difficulty": "balanced"
+}

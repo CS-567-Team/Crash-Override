@@ -8,6 +8,7 @@ from ..agents import PlannerAgent, ProgrammerAgent, ReviewerAgent
 from ..models import Architecture, Task, WorkflowResult
 from ..services.model import ModelProvider
 from ..services.repo import apply_replacements, copy_baseline, read_app_files
+from ..services.testing import evaluate
 
 PIPELINE_VERSION = 1
 
@@ -83,7 +84,11 @@ class Workflow:
             if self.architecture != Architecture.PROGRAMMER_ONLY:
                 invoke(ReviewerAgent(self.provider), changed_files,
                        original_files=original_files, diff=diff)
-                
+
+            # Researcher-only ground truth; never part of participant_payload().
+            evaluation = evaluate(task.id, changed_files, baseline=baseline)
+            log({"event": "evaluation_completed", "evaluation": evaluation})
+
             result = WorkflowResult(
                 
                 cache_id=cache_id, task=asdict(task), architecture=self.architecture.value,
@@ -94,7 +99,8 @@ class Workflow:
                           "workspace": str(workspace), "model_calls": len(outputs),
                           "elapsed_seconds": perf_counter() - started,
                           "input_tokens": sum(a["response"]["input_tokens"] for a in outputs),
-                          "output_tokens": sum(a["response"]["output_tokens"] for a in outputs)},
+                          "output_tokens": sum(a["response"]["output_tokens"] for a in outputs),
+                          "evaluation": evaluation},
             )
             
             cache_path.write_text(json.dumps(result.to_dict(), indent=2) + "\n", encoding="utf-8")
