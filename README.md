@@ -82,8 +82,9 @@ the thumbstick pushes it away or pulls it closer. Left thumbstick = walk. Right 
 wall and a blue outline shows where it will snap; let go to stick it there. "Reset layout"
 puts everything back.
 
-The VR room (a loft with windows) is built in src/frontend/web/room.js. Its colors are all
-in the THEME block at the top of that file.
+The VR room is a modern loft with a glass wall overlooking the sea at golden hour, built in
+src/frontend/web/room.js. The sun position, exposure and all colors are in the THEME block
+at the top of that file. Panels snap onto the left, right and back walls.
 
 Alternative with a USB cable (needs developer mode and adb): run the server without
 --https, then  adb reverse tcp:8000 tcp:8000  and open http://localhost:8000.

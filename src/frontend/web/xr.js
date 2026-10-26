@@ -46,8 +46,9 @@ class Panel {
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
+    // toneMapped: false keeps panel text at its exact colors whatever the room lighting.
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(widthM, heightM),
-                               new THREE.MeshBasicMaterial({ map: this.texture, side: THREE.DoubleSide }));
+                               new THREE.MeshBasicMaterial({ map: this.texture, side: THREE.DoubleSide, toneMapped: false }));
     this.mesh.userData.panel = this;
     this.buttons = [];
     this.hovered = null;
@@ -386,11 +387,11 @@ renderer.xr.setReferenceSpaceType("local");
 document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
-const room = buildRoom(scene);
+const room = buildRoom(scene, renderer);
 
 // Shows where a held panel will land when it is close enough to a wall to snap.
 const snapPreview = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
-  color: "#8fb3ff", transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
+  color: "#8fb3ff", transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
 snapPreview.visible = false;
 scene.add(snapPreview);
 
@@ -407,7 +408,7 @@ function placeOnWall(mesh, target) {
 // Moving the rig moves the participant (camera and controllers together).
 const rig = new THREE.Group();
 scene.add(rig);
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 4000);
 rig.add(camera);
 
 const decisionPanel = new DecisionPanel();
@@ -574,7 +575,7 @@ const controllers = [0, 1].map((index) => {
   const controller = renderer.xr.getController(index);
   const ray = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
-    new THREE.LineBasicMaterial({ color: "#8fb3ff" }));
+    new THREE.LineBasicMaterial({ color: "#8fb3ff", toneMapped: false }));
   ray.scale.z = 5;
   controller.add(ray);
   controller.userData = { ray, held: null, inputSource: null, turned: false, lastScroll: 0 };
@@ -770,6 +771,7 @@ let last = 0;
 renderer.setAnimationLoop((time) => {
   const dt = Math.min(0.1, (time - last) / 1000);
   last = time;
+  room.update(time / 1000);
   if (renderer.xr.isPresenting) updateControllers(time, dt);
   else updateKeyboard(dt);
   updateGaze(time);
