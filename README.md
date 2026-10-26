@@ -78,8 +78,12 @@ HTTPS on your Wi-Fi. No cable or developer mode needed.
 
 Controls in VR: trigger = click. Grip (hold) = grab and move a panel; while holding,
 the thumbstick pushes it away or pulls it closer. Left thumbstick = walk. Right thumbstick
-= scroll the panel you point at (up/down) or turn (left/right). "Reset layout" puts
-everything back.
+= scroll the panel you point at (up/down) or turn (left/right). Bring a held panel near a
+wall and a blue outline shows where it will snap; let go to stick it there. "Reset layout"
+puts everything back.
+
+The VR room (a loft with windows) is built in src/frontend/web/room.js. Its colors are all
+in the THEME block at the top of that file.
 
 Alternative with a USB cable (needs developer mode and adb): run the server without
 --https, then  adb reverse tcp:8000 tcp:8000  and open http://localhost:8000.

@@ -11,6 +11,7 @@
 // Laptop preview: drag to look, W A S D to walk, wheel scrolls, click buttons.
 
 import * as THREE from "three";
+import { buildRoom, snapTarget } from "./room.js";
 import { ROLE_COLORS, participantFromUrl, fetchSession, fetchTrial, InteractionLog, submitDecision, debug } from "./common.js";
 
 window.addEventListener("error", (event) => debug("error", { message: event.message, where: `${event.filename}:${event.lineno}` }));
@@ -385,15 +386,28 @@ renderer.xr.setReferenceSpaceType("local");
 document.body.append(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#1b1f27");
-const floor = new THREE.GridHelper(40, 80, "#3a4150", "#2a303b");
-floor.position.y = -1.3;
-scene.add(floor);
+const room = buildRoom(scene);
+
+// Shows where a held panel will land when it is close enough to a wall to snap.
+const snapPreview = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+  color: "#8fb3ff", transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
+snapPreview.visible = false;
+scene.add(snapPreview);
+
+function panelSnap(panel) {
+  const { width, height } = panel.mesh.geometry.parameters;
+  return snapTarget(room.walls, panel.mesh.getWorldPosition(new THREE.Vector3()), width, height);
+}
+
+function placeOnWall(mesh, target) {
+  mesh.position.copy(target.position);
+  mesh.lookAt(target.position.clone().add(target.normal));
+}
 
 // Moving the rig moves the participant (camera and controllers together).
 const rig = new THREE.Group();
 scene.add(rig);
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 60);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 120);
 rig.add(camera);
 
 const decisionPanel = new DecisionPanel();
@@ -401,7 +415,7 @@ let sectionPanels = [];
 const allPanels = () => [...sectionPanels, decisionPanel];
 
 function placeDecisionPanel(inFront) {
-  decisionPanel.mesh.position.set(0, inFront ? 0 : -0.8, inFront ? -1.6 : -1.25);
+  decisionPanel.mesh.position.set(0, inFront ? 0 : -0.7, inFront ? -1.6 : -1.25);
   decisionPanel.mesh.lookAt(0, 0, 0);
   decisionPanel.rememberPlacement();
 }
@@ -424,6 +438,7 @@ function resetLayout() {
   log.add("reset_layout", "");
   allPanels().forEach((panel) => panel.resetPlacement());
   controllers.forEach((c) => { c.userData.held = null; });
+  snapPreview.visible = false;
   rig.position.set(0, 0, 0);
   rig.rotation.set(0, 0, 0);
 }
@@ -581,9 +596,16 @@ const controllers = [0, 1].map((index) => {
   controller.addEventListener("squeezeend", () => {
     const panel = controller.userData.held;
     if (!panel) return;
+    const target = panelSnap(panel);
     scene.attach(panel.mesh);
     controller.userData.held = null;
-    log.add("release", panel.id);
+    snapPreview.visible = false;
+    if (target) {
+      placeOnWall(panel.mesh, target);
+      log.add("snap", `${panel.id}:${target.wall}`);
+    } else {
+      log.add("release", panel.id);
+    }
   });
   rig.add(controller);
   return controller;
@@ -612,6 +634,12 @@ function walk(x, z, dt) {
   forward.normalize();
   right.crossVectors(forward, UP);
   rig.position.addScaledVector(forward, -z * WALK_SPEED * dt).addScaledVector(right, x * WALK_SPEED * dt);
+
+  // Stay inside the room: push the rig back by however far the head went past a wall.
+  view.getWorldPosition(head);
+  const { minX, maxX, minZ, maxZ } = room.walkable;
+  rig.position.x += THREE.MathUtils.clamp(head.x, minX, maxX) - head.x;
+  rig.position.z += THREE.MathUtils.clamp(head.z, minZ, maxZ) - head.z;
 }
 
 function snapTurn(direction) {
@@ -634,6 +662,14 @@ function updateControllers(time, dt) {
       const mesh = held.mesh;
       mesh.position.z = Math.max(-8, Math.min(-0.3, mesh.position.z + y * PULL_SPEED * dt));
       controller.userData.ray.scale.z = -mesh.position.z;
+      const target = panelSnap(held);
+      snapPreview.visible = Boolean(target);
+      if (target) {
+        const { width, height } = mesh.geometry.parameters;
+        snapPreview.scale.set(width, height, 1);
+        placeOnWall(snapPreview, target);
+        snapPreview.position.addScaledVector(target.normal, 0.01);
+      }
       continue;
     }
 
