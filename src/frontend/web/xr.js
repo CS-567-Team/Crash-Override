@@ -440,8 +440,26 @@ function resetLayout() {
   allPanels().forEach((panel) => panel.resetPlacement());
   controllers.forEach((c) => { c.userData.held = null; });
   snapPreview.visible = false;
-  rig.position.set(0, 0, 0);
-  rig.rotation.set(0, 0, 0);
+  recenter();
+}
+
+// Put the participant back at the layout's center, facing the front panel, from wherever
+// they are standing or facing now (in the headset, turning or stepping in the room changes
+// the head pose, so only zeroing the rig could leave the panels behind or beside them).
+function recenter() {
+  if (!renderer.xr.isPresenting) {
+    rig.position.set(0, 0, 0);
+    rig.rotation.set(0, 0, 0);
+    return;
+  }
+  // While presenting, three.js keeps `camera` (a child of the rig) at the head pose
+  // relative to the rig, so its local position and rotation are the tracked head.
+  const local = camera.position.clone();
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const yaw = Math.atan2(-forward.x, -forward.z);
+  rig.rotation.set(0, -yaw, 0);
+  local.y = 0;
+  rig.position.copy(local.applyAxisAngle(UP, -yaw).negate());
 }
 
 scene.add(decisionPanel.mesh);
