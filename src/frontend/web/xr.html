@@ -22,6 +22,39 @@
 <body>
   <div id="hint">Loading…</div>
   <button id="enter">Enter VR</button>
+  <script>
+    // Runs before the 3D module so load failures show up in the headset instead of a silent "Loading…".
+    (function () {
+      var hint = document.getElementById("hint");
+      var started = Date.now();
+      function report(message) {
+        hint.textContent = message;
+        try {
+          fetch("api/debug", { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ event: "load_problem", message: message, userAgent: navigator.userAgent }) }).catch(function () {});
+        } catch (e) {}
+      }
+      window.addEventListener("error", function (event) {
+        if (event.target && event.target.src) report("Could not load " + event.target.src);
+        else if (event.message) report("Error: " + event.message + " (" + event.filename + ":" + event.lineno + ")");
+      }, true);
+      document.getElementById("enter").addEventListener("click", function () {
+        if (hint.textContent.indexOf("Loading") === 0) hint.textContent = "Still loading the 3D files, wait a moment and try again.";
+      });
+      // If the module has not replaced "Loading…" after 20 s, say so and check the big file directly.
+      setTimeout(function check() {
+        if (hint.textContent.indexOf("Loading") !== 0) return;
+        var seconds = Math.round((Date.now() - started) / 1000);
+        report("Still loading after " + seconds + " s. Checking three.module.js (the 1.3 MB 3D library)…");
+        fetch("vendor/three.module.js", { cache: "no-store" }).then(function (r) {
+          return r.text().then(function (text) {
+            report("Still loading after " + seconds + " s. three.module.js: HTTP " + r.status + ", " +
+                   (r.headers.get("Content-Type") || "no type") + ", " + text.length + " bytes (expected 1272972).");
+          });
+        }).catch(function (e) { report("Still loading after " + seconds + " s. three.module.js failed: " + e.message); });
+      }, 20000);
+    })();
+  </script>
   <script type="module" src="xr.js"></script>
 </body>
 </html>
