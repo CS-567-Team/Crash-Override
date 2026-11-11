@@ -5,6 +5,8 @@
 
 import json
 import ssl
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -15,17 +17,20 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from src.backend.agents import PlannerAgent, ProgrammerAgent, ReviewerAgent
+from src.backend.experiment.merge import merge
 from src.backend.experiment.metrics import analyze
+from src.backend.experiment.participant_export import FORBIDDEN, NAME, export
 from src.backend.experiment.plan import next_trial, session_plan
 from src.backend.experiment.session import TrialSession
 from src.backend.experiment.presentation import build_sections
-from src.backend.experiment.schedule import DEFAULT_TASKS, SEEDED_TASKS, build_schedule
+from src.backend.experiment.check_suites import SEEDED_TASKS
+from src.backend.experiment.schedule import DEFAULT_TASKS, build_schedule
 from src.backend.experiment.task_loader import load_task
 from src.backend.models import Architecture
 from src.backend.pipelines.workflow import Workflow, load_cached
 from src.backend.server import Handler
 from src.backend.services.certs import ensure_certificate
-from src.backend.services.model import DemoProvider
+from src.backend.services.demo_provider import DemoProvider
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK = ROOT / "experiment" / "tasks" / "demo_task.json"
@@ -353,6 +358,81 @@ class ServerTests(unittest.TestCase):
             "cache_id": self.seeded.cache_id, "participant_id": "p99", "display": "xr", "decision": "maybe"})
         self.assertEqual(status, 400)
         self.assertIn("accept or reject", body["error"])
+
+
+class ParticipantEditionTests(unittest.TestCase):
+    """Remote sessions: export a copy without answers, record decisions in it, merge them back."""
+
+    RECORD = """
+import json, sys
+from pathlib import Path
+from src.backend.experiment.plan import next_trial, session_plan
+from src.backend.experiment.session import TrialSession
+from src.backend.pipelines.workflow import load_cached
+runtime = Path("runtime")
+while (trial := next_trial(session_plan(sys.argv[1], runtime))):
+    result = load_cached(runtime / "cache" / f"{trial['cache_id']}.json")
+    session = TrialSession(sys.argv[1], trial["display"], result)
+    session.present()
+    session.record_decision("accept", runtime / "decisions.jsonl", decision_seconds=3.0)
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.runtime = Path(cls.tmp.name) / "runtime"
+        for task in DEFAULT_TASKS:
+            for architecture in Architecture:
+                Workflow(DemoProvider(), architecture).run(
+                    load_task(ROOT / "experiment" / "tasks" / f"{task}.json"),
+                    baseline=BASELINE, runtime=cls.runtime)
+        export(cls.runtime, Path(cls.tmp.name) / "dist", make_zip=False)
+        cls.copy = Path(cls.tmp.name) / "dist" / NAME
+        subprocess.run([sys.executable, "-c", cls.RECORD, "p03"], cwd=cls.copy, check=True)
+        cls.remote_log = cls.copy / "runtime" / "decisions.jsonl"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_copy_has_no_answers(self):
+        for path in ["experiment/hidden_tests", "experiment/reference_solutions", "experiment/demo_fixtures",
+                     "tests", "baseline", "src/backend/services/demo_provider.py",
+                     "src/backend/experiment/check_suites.py"]:
+            self.assertFalse((self.copy / path).exists(), path)
+        caches = sorted((self.copy / "runtime" / "cache").glob("response_*.json"))
+        self.assertEqual(len(caches), len(DEFAULT_TASKS) * len(Architecture))
+        for cache in caches:
+            text = cache.read_text().lower()
+            self.assertEqual([word for word in FORBIDDEN if word in text], [], cache.name)
+        self.assertTrue((self.copy / "PARTICIPANT_EDITION").is_file())
+        self.assertTrue((self.copy / "README.md").is_file())
+
+    def test_copy_records_decisions_without_scores(self):
+        records = [json.loads(line) for line in self.remote_log.read_text().splitlines()]
+        self.assertEqual(len(records), 6)
+        self.assertTrue(all(r["expected_decision"] is None and r["correct"] is None for r in records))
+
+    def test_merge_scores_and_is_idempotent(self):
+        log = self.runtime / "decisions.jsonl"
+        log.unlink(missing_ok=True)
+        report = merge([self.remote_log], self.runtime)
+        self.assertEqual(report["added"], 6)
+        records = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertTrue(all(r["expected_decision"] in {"accept", "reject"} for r in records))
+        # Everything was accepted, so exactly the seeded trials are wrong.
+        wrong = {r["task_id"] for r in records if not r["correct"]}
+        self.assertEqual(wrong, SEEDED_TASKS)
+        self.assertEqual([r["trial_id"] for r in records], [f"trial_{i:02d}" for i in range(1, 7)])
+        self.assertEqual(merge([self.remote_log], self.runtime)["skipped"], 6)
+        self.assertEqual(len(log.read_text().splitlines()), 6)
+
+    def test_merge_rejects_trials_from_other_caches(self):
+        bad = Path(self.tmp.name) / "bad.jsonl"
+        record = json.loads(self.remote_log.read_text().splitlines()[0])
+        bad.write_text(json.dumps({**record, "participant_id": "p77", "task_id": "not_this_task"}) + "\n")
+        with self.assertRaises(ValueError):
+            merge([bad], self.runtime, dry_run=True)
 
 
 if __name__ == "__main__":

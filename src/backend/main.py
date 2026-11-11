@@ -10,7 +10,7 @@ from .experiment.session import TrialSession
 from .experiment.task_loader import load_task
 from .models import Architecture
 from .pipelines.workflow import Workflow, load_cached
-from .services.model import DemoProvider, OpenAIProvider
+from .services.model import OpenAIProvider
 from .services.testing import evaluate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -90,6 +90,29 @@ def main() -> None:
                          type=Path,
                          help="Output folder (default: <runtime>/analysis)")
 
+    export = commands.add_parser("export-participant",
+                                 help="Build the participant edition (no hidden tests or scores) for remote sessions")
+    export.add_argument("--runtime",
+                        type=Path,
+                        default=PROJECT_ROOT / "runtime")
+    export.add_argument("--out",
+                        type=Path,
+                        default=PROJECT_ROOT / "dist")
+    export.add_argument("--no-zip",
+                        action="store_true")
+
+    merge = commands.add_parser("merge",
+                                help="Add a remote participant's decisions.jsonl to runtime/decisions.jsonl and score it")
+    merge.add_argument("files",
+                       type=Path,
+                       nargs="+")
+    merge.add_argument("--runtime",
+                       type=Path,
+                       default=PROJECT_ROOT / "runtime")
+    merge.add_argument("--dry-run",
+                       action="store_true",
+                       help="Check and report without writing")
+
     args = parser.parse_args()
     
     try:
@@ -105,6 +128,7 @@ def main() -> None:
                 if args.model:
                     raise ValueError("--model only applies to AI model providers")
                 
+                from .services.demo_provider import DemoProvider
                 provider = DemoProvider(seeded=args.provider == "demo-seeded")
                 
             if args.all:
@@ -132,16 +156,30 @@ def main() -> None:
 
         elif args.command == "analyze":
 
-            from .experiment.metrics import analyze as export_metrics
+            from .experiment.metrics import analyze as export_metrics, print_summary
             out = args.out or args.runtime / "analysis"
             rows, summary = export_metrics(args.runtime, out)
             print(f"{len(rows)} decisions -> {out / 'trials.csv'} and {out / 'summary.csv'}\n")
-            print(f"{'architecture / display':<42}{'n':>4}{'accuracy':>10}{'caught bug':>12}{'mean s':>9}{'trust':>7}")
-            for row in summary:
-                if row["group_by"] == "architecture_x_display":
-                    print(f"{row['group']:<42}{row['trials']:>4}{str(row['accuracy']):>10}"
-                          f"{str(row['seeded_failure_caught']):>12}{str(row['mean_decision_seconds']):>9}"
-                          f"{str(row['mean_trust']):>7}")
+            print_summary(summary)
+
+        elif args.command == "export-participant":
+
+            from .experiment.participant_export import export
+            manifest = export(args.runtime, args.out, make_zip=not args.no_zip)
+            print(f"Participant edition with {len(manifest['trials'])} cached trials:")
+            print(f"  folder: {manifest['folder']}")
+            if "zip" in manifest:
+                print(f"  zip:    {manifest['zip']}   <- send this to participants")
+
+        elif args.command == "merge":
+
+            from .experiment.merge import merge as merge_decisions
+            report = merge_decisions(args.files, args.runtime, dry_run=args.dry_run)
+            verb = "Would add" if args.dry_run else "Added"
+            print(f"{verb} {report['added']} decisions to {report['log']} "
+                  f"(skipped {report['skipped']} already there).")
+            for participant, stats in sorted(report["participants"].items()):
+                print(f"  {participant}: {stats['trials']} trials, {stats['correct']} correct")
 
         elif args.command == "serve":
 

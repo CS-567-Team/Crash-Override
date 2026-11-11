@@ -130,3 +130,12 @@ def analyze(runtime: Path, out_dir: Path) -> tuple[list[dict], list[dict]]:
     write_csv(out_dir / "trials.csv", TRIAL_COLUMNS, rows)
     write_csv(out_dir / "summary.csv", SUMMARY_COLUMNS, summary)
     return rows, summary
+
+
+def print_summary(summary: list[dict]) -> None:
+    print(f"{'architecture / display':<42}{'n':>4}{'accuracy':>10}{'caught bug':>12}{'mean s':>9}{'trust':>7}")
+    for row in summary:
+        if row["group_by"] == "architecture_x_display":
+            print(f"{row['group']:<42}{row['trials']:>4}{str(row['accuracy']):>10}"
+                  f"{str(row['seeded_failure_caught']):>12}{str(row['mean_decision_seconds']):>9}"
+                  f"{str(row['mean_trust']):>7}")
