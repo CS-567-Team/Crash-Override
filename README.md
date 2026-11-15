@@ -89,6 +89,29 @@ at the top of that file. Panels snap onto the left, right and back walls.
 Alternative with a USB cable (needs developer mode and adb): run the server without
 --https, then  adb reverse tcp:8000 tcp:8000  and open http://localhost:8000.
 
+Remote participants (participant edition)
+
+Participants who have their own Quest can run the study at home. They get a copy of the
+app with the exact cached agent outputs but no hidden tests, reference solutions, demo
+fixtures, tests or scores, and they email back their decisions.jsonl.
+
+1. On the researcher laptop, after the caches are generated (the same ones used in person):
+
+    python -m src.backend.main export-participant
+       -> dist/crash-override-participant.zip   (send this to the participant)
+
+   The participant follows README.md inside the zip (PARTICIPANT_SETUP.md here).
+   Re-export only if you regenerate caches; participants must all use the same zip.
+
+2. When their file arrives, save it (for example as runtime/remote/p03.jsonl) and run:
+
+    python -m src.backend.main merge runtime/remote/p03.jsonl --dry-run   # check first
+    python -m src.backend.main merge runtime/remote/p03.jsonl
+
+   This appends their decisions to runtime/decisions.jsonl with expected_decision and
+   correct filled in from your cache, new trial_ids (theirs kept as remote_trial_id), and
+   skips anything already merged. Then run analyze as usual.
+
 Researcher tools
 
     Streamlit sidebar > Researcher preview: view any trial without recording

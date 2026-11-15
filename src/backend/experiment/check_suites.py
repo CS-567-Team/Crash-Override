@@ -11,6 +11,10 @@ from ..services.repo import read_app_files
 from ..services.testing import HIDDEN_TESTS, PROJECT_ROOT, evaluate
 
 BASELINE = PROJECT_ROOT / "baseline"
+# The seeded-bug tasks sit at one odd and one even index of schedule.DEFAULT_TASKS, so every
+# participant gets one seeded trial in each display block. Kept here because this module is
+# left out of the participant edition.
+SEEDED_TASKS = {"modulo", "overflow_guard"}
 REFERENCES = PROJECT_ROOT / "experiment" / "reference_solutions"
 
 

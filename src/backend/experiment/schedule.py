@@ -20,10 +20,8 @@ from ..models import Architecture
 DISPLAYS = ["2d", "xr"]
 CONDITIONS = [(a.value, d) for a, d in product(Architecture, DISPLAYS)]
 WORKFLOW_ORDERS = list(permutations(a.value for a in Architecture))
-# The seeded-bug tasks (modulo, overflow_guard) sit at one odd and one even index, so every
-# participant gets one seeded trial in each display block.
+# Task order matters for balance (see check_suites.py).
 DEFAULT_TASKS = ["demo_task", "modulo", "exponent", "reuse_answer", "overflow_guard", "result_format"]
-SEEDED_TASKS = {"modulo", "overflow_guard"}
 
 
 def build_schedule(participants: int, tasks: list[str]) -> list[dict]:

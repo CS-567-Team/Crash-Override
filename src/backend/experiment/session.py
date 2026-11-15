@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 
+from ..edition import PARTICIPANT_EDITION
 from ..models import WorkflowResult
 
 def next_trial_id(decisions_path: Path) -> str:
@@ -50,7 +51,9 @@ class TrialSession:
         if decision_seconds is None:
             decision_seconds = perf_counter() - self.started_at
 
-        expected = self.result.metadata.get("evaluation", {}).get("correct_decision")
+        # The participant edition has no scores; the researcher fills these in with `merge`.
+        expected = (None if PARTICIPANT_EDITION else
+                    self.result.metadata.get("evaluation", {}).get("correct_decision"))
         
         path = Path(path)
         trial_id = next_trial_id(path)

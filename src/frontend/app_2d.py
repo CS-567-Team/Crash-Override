@@ -20,6 +20,7 @@ from pygments.lexers import PythonLexer
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from src.backend.edition import PARTICIPANT_EDITION  # noqa: E402
 from src.backend.experiment.plan import next_trial, session_plan  # noqa: E402
 from src.backend.experiment.presentation import build_sections, load_context  # noqa: E402
 from src.backend.experiment.session import TrialSession  # noqa: E402
@@ -160,13 +161,14 @@ with st.sidebar:
             where = "VR headset" if trial["display"] == "xr" else "This screen"
             st.write(f"{mark} Trial {trial['position']}: {where}")
 
-    with st.expander("Researcher preview"):
-        caches = sorted((RUNTIME / "cache").glob("response_*.json"), key=lambda p: int(p.stem.split("_")[1]))
-        labels = {}
-        for path in caches:
-            result = load_cached(path)
-            labels[f"{result.cache_id}: {result.task['id']} / {result.architecture}"] = result.cache_id
-        preview = st.selectbox("Show a trial without recording", ["(off)", *labels], key="preview")
+    preview, labels = "(off)", {}
+    if not PARTICIPANT_EDITION:
+        with st.expander("Researcher preview"):
+            caches = sorted((RUNTIME / "cache").glob("response_*.json"), key=lambda p: int(p.stem.split("_")[1]))
+            for path in caches:
+                result = load_cached(path)
+                labels[f"{result.cache_id}: {result.task['id']} / {result.architecture}"] = result.cache_id
+            preview = st.selectbox("Show a trial without recording", ["(off)", *labels], key="preview")
 
 # ---------------------------------------------------------------- main
 
@@ -189,11 +191,19 @@ elif plan:
             st.rerun()
     elif upcoming is None:
         st.title("All trials complete")
-        st.success("Thank you for taking part! Please let the researcher know you are finished.")
+        if PARTICIPANT_EDITION:
+            st.success("Thank you for taking part! Please email the researcher this file:")
+            st.code(str(DECISIONS), language=None)
+        else:
+            st.success("Thank you for taking part! Please let the researcher know you are finished.")
     elif upcoming["cache_id"] is None:
-        st.error(f"Trial {upcoming['position']} has no generated agent output yet "
-                 f"({upcoming['task']} / {upcoming['architecture']}). Run: "
-                 "python -m src.backend.main generate --all")
+        if PARTICIPANT_EDITION:
+            st.error(f"Trial {upcoming['position']} is missing from this copy of the study. "
+                     "Please email the researcher; do not continue.")
+        else:
+            st.error(f"Trial {upcoming['position']} has no generated agent output yet "
+                     f"({upcoming['task']} / {upcoming['architecture']}). Run: "
+                     "python -m src.backend.main generate --all")
     elif upcoming["display"] == "xr":
         laptop_done = any(trial["done"] for trial in plan if trial["display"] == "2d")
         remaining = sum(not trial["done"] for trial in plan if trial["display"] == "xr")
@@ -205,8 +215,12 @@ elif plan:
         st.markdown(f"Please put on the headset and press the big blue **Enter VR** button in front of you. "
                     f"Your next {remaining} trials are in VR.\n\n"
                     "When the headset tells you the VR part is complete, take it off and come back here.")
-        st.caption("Researcher: the headset should already show the VR page for participant "
-                   f"{participant} (see README, 'Oculus setup').")
+        if PARTICIPANT_EDITION:
+            st.caption("In the headset browser, open the address printed by the serve command "
+                       f"and enter the ID {participant} (see README, step 4).")
+        else:
+            st.caption("Researcher: the headset should already show the VR page for participant "
+                       f"{participant} (see README, 'Oculus setup').")
         wait_for_vr(participant)
     else:
         run_trial(participant, upcoming)
